@@ -53,7 +53,7 @@ main :: proc() {
     rl.InitWindow(640, 360, "Silent Night")
     defer rl.CloseWindow()
 
-    
+    // Here we configure the animations
     idle_anim := Animation{
         texture     = rl.LoadTexture("assets/sprites/player_idle-sheet.png"),
         frame_count = 6,
@@ -74,7 +74,8 @@ main :: proc() {
         frame_time  = 0.15,
     }
     defer rl.UnloadTexture(jump_anim.texture)
-
+    
+    /// This sections sets up the collidables/interactables
     ground := Ground{
         x      = 0,
         y      = 325,
@@ -82,7 +83,7 @@ main :: proc() {
         height = 35,
     }
 
-    // Upper platform (60px above enemies at y=317)
+    
     platform := Ground{
         x      = 150,
         y      = 257,
@@ -90,12 +91,12 @@ main :: proc() {
         height = 10,
     }
 
-    // Ladder connecting ground to platform
+    
     ladder := Ladder{
         x      = 140,
         y      = 257,
         width  = 16,
-        height = 68,  // From platform (257) to ground (325)
+        height = 68,  
     }
 
     player := Player{
@@ -109,14 +110,14 @@ main :: proc() {
         frame_timer   = 0,
     }
 
-    // Enemy patrollers
+    
     enemies := [3]Enemy{
         {x = 580, y = 317, start_x = 580, direction = -1},
         {x = 200, y = 317, start_x = 200, direction = 1},
         {x = 400, y = 317, start_x = 400, direction = -1},
     }
 
-    // Noise meter: 0 to 100
+    // This section details the game logic
     noise_meter: f32 = 0
     game_over := false
 
@@ -125,7 +126,7 @@ main :: proc() {
     for !rl.WindowShouldClose() {
         dt := rl.GetFrameTime()
 
-        // Restart game
+        
         if game_over && rl.IsKeyPressed(.R) {
             noise_meter = 0
             player.x = 320
@@ -144,7 +145,6 @@ main :: proc() {
         moving := false
         climbing := false
 
-        // Check if player is on the ladder
         on_ladder := player.x >= ladder.x && player.x <= ladder.x + ladder.width &&
                      player.y >= ladder.y && player.y <= ladder.y + ladder.height
 
@@ -209,7 +209,6 @@ main :: proc() {
             }
         }
 
-        // Ground collision
         ground_top := ground.y - 8
         if player.y >= ground_top {
             player.y = ground_top
@@ -248,18 +247,12 @@ main :: proc() {
             player.frame_timer = 0
         }
 
-        // Update noise meter
         if moving {
-            // Increase by 0.01 * PLAYER_SPEED per second when moving
-            noise_meter += 0.01 * PLAYER_SPEED * dt
-        } else {
-            // Decrease by 0.01 * PLAYER_SPEED per 3 seconds when idle
+            // Increase by 0.01 * PLAYER_SPEED per second when movin        } else {
             noise_meter -= 0.01 * PLAYER_SPEED * dt / 3
         }
-        // Clamp noise meter between 0 and 100
         noise_meter = clamp(noise_meter, 0, 100)
 
-        // Check for game over (noise meter)
         if noise_meter >= 100 {
             game_over = true
         }
