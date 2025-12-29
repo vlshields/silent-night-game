@@ -101,24 +101,28 @@ main :: proc() {
             moving = true
         }
 
-        
+
         if rl.IsKeyPressed(.SPACE) && player.grounded {
             player.vel_y = -JUMP_FORCE
             player.grounded = false
+            noise_meter += 20  // Jumping adds noise
         }
 
-        
+        was_airborne := !player.grounded
+
         if !player.grounded {
             player.vel_y += GRAVITY * dt
             player.y += player.vel_y * dt
         }
 
-        
-        ground_top := ground.y - 8 
+        ground_top := ground.y - 8
         if player.y >= ground_top {
             player.y = ground_top
             player.vel_y = 0
             player.grounded = true
+            if was_airborne {
+                noise_meter += 10  // Landing adds noise
+            }
         }
 
         // This sections sets up animation based on player state
