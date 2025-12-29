@@ -35,10 +35,10 @@ GRAVITY       :: 800.0
 FRAME_SIZE    :: 16
 
 main :: proc() {
-    rl.InitWindow(1280, 720, "Silent Night")
+    rl.InitWindow(640, 360, "Silent Night")
     defer rl.CloseWindow()
 
-    // Load sprite sheets
+    
     idle_anim := Animation{
         texture     = rl.LoadTexture("assets/sprites/player_idle-sheet.png"),
         frame_count = 6,
@@ -62,14 +62,14 @@ main :: proc() {
 
     ground := Ground{
         x      = 0,
-        y      = 650,
-        width  = 1280,
-        height = 70,
+        y      = 325,
+        width  = 640,
+        height = 35,
     }
 
     player := Player{
-        x             = 640,
-        y             = 642,
+        x             = 320,
+        y             = 317,
         vel_y         = 0,
         grounded      = true,
         state         = .Idle,
@@ -77,6 +77,9 @@ main :: proc() {
         current_frame = 0,
         frame_timer   = 0,
     }
+
+    // Noise meter: 0 to 100
+    noise_meter: f32 = 0
 
     rl.SetTargetFPS(60)
 
@@ -86,7 +89,7 @@ main :: proc() {
         // Track if moving this frame
         moving := false
 
-        // Horizontal movement
+        // This section sets up movement, gravity, and tile colision
         if rl.IsKeyDown(.A) {
             player.x -= PLAYER_SPEED * dt
             player.facing_left = true
@@ -98,27 +101,27 @@ main :: proc() {
             moving = true
         }
 
-        // Jumping
+        
         if rl.IsKeyPressed(.SPACE) && player.grounded {
             player.vel_y = -JUMP_FORCE
             player.grounded = false
         }
 
-        // Apply gravity
+        
         if !player.grounded {
             player.vel_y += GRAVITY * dt
             player.y += player.vel_y * dt
         }
 
-        // Ground collision
-        ground_top := ground.y - 8  // half sprite height
+        
+        ground_top := ground.y - 8 
         if player.y >= ground_top {
             player.y = ground_top
             player.vel_y = 0
             player.grounded = true
         }
 
-        // Determine player state
+        // This sections sets up animation based on player state
         prev_state := player.state
         if !player.grounded {
             player.state = .Jumping
@@ -128,13 +131,24 @@ main :: proc() {
             player.state = .Idle
         }
 
-        // Reset animation if state changed
+        // Update noise meter
+        if moving {
+            // Increase by 0.01 * PLAYER_SPEED per second when moving
+            noise_meter += 0.01 * PLAYER_SPEED * dt
+        } else {
+            // Decrease by 0.01 * PLAYER_SPEED per 3 seconds when idle
+            noise_meter -= 0.01 * PLAYER_SPEED * dt / 3
+        }
+        // Clamp noise meter between 0 and 100
+        noise_meter = clamp(noise_meter, 0, 100)
+
+
         if player.state != prev_state {
             player.current_frame = 0
             player.frame_timer = 0
         }
 
-        // Get current animation
+        
         current_anim: ^Animation
         switch player.state {
         case .Idle:
@@ -145,18 +159,18 @@ main :: proc() {
             current_anim = &jump_anim
         }
 
-        // Update animation frame
+        
         player.frame_timer += dt
         if player.frame_timer >= current_anim.frame_time {
             player.frame_timer = 0
             player.current_frame = (player.current_frame + 1) % current_anim.frame_count
         }
 
-        // Drawing
+        // And here we do the drawing
         rl.BeginDrawing()
         rl.ClearBackground(rl.BLACK)
 
-        // Draw ground
+        
         rl.DrawRectangle(
             i32(ground.x),
             i32(ground.y),
@@ -165,7 +179,7 @@ main :: proc() {
             rl.GRAY,
         )
 
-        // Draw player sprite
+        
         source_rect := rl.Rectangle{
             x      = f32(player.current_frame * FRAME_SIZE),
             y      = 0,
@@ -188,6 +202,22 @@ main :: proc() {
             0,
             rl.WHITE,
         )
+
+        // Draw noise meter
+        METER_X      :: 10
+        METER_Y      :: 10
+        METER_WIDTH  :: 100
+        METER_HEIGHT :: 12
+
+        // Background (empty meter)
+        rl.DrawRectangle(METER_X, METER_Y, METER_WIDTH, METER_HEIGHT, rl.DARKGRAY)
+        // Filled portion
+        filled_width := i32(noise_meter)
+        rl.DrawRectangle(METER_X, METER_Y, filled_width, METER_HEIGHT, rl.RED)
+        // Border
+        rl.DrawRectangleLines(METER_X, METER_Y, METER_WIDTH, METER_HEIGHT, rl.WHITE)
+        // Label
+        rl.DrawText("NOISE", METER_X, METER_Y + METER_HEIGHT + 2, 10, rl.WHITE)
 
         rl.EndDrawing()
     }
