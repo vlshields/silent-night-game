@@ -80,16 +80,29 @@ main :: proc() {
 
     // Noise meter: 0 to 100
     noise_meter: f32 = 0
+    game_over := false
 
     rl.SetTargetFPS(60)
 
     for !rl.WindowShouldClose() {
         dt := rl.GetFrameTime()
 
+        // Restart game
+        if game_over && rl.IsKeyPressed(.R) {
+            noise_meter = 0
+            player.x = 320
+            player.y = 317
+            player.vel_y = 0
+            player.grounded = true
+            player.state = .Idle
+            game_over = false
+        }
+
         // Track if moving this frame
         moving := false
 
         // This section sets up movement, gravity, and tile colision
+        if !game_over {
         if rl.IsKeyDown(.A) {
             player.x -= PLAYER_SPEED * dt
             player.facing_left = true
@@ -146,13 +159,13 @@ main :: proc() {
         // Clamp noise meter between 0 and 100
         noise_meter = clamp(noise_meter, 0, 100)
 
-
-        if player.state != prev_state {
-            player.current_frame = 0
-            player.frame_timer = 0
+        // Check for game over
+        if noise_meter >= 100 {
+            game_over = true
         }
+        } // end if !game_over
 
-        
+        // Animation (runs even during game over to keep sprite visible)
         current_anim: ^Animation
         switch player.state {
         case .Idle:
@@ -163,11 +176,12 @@ main :: proc() {
             current_anim = &jump_anim
         }
 
-        
-        player.frame_timer += dt
-        if player.frame_timer >= current_anim.frame_time {
-            player.frame_timer = 0
-            player.current_frame = (player.current_frame + 1) % current_anim.frame_count
+        if !game_over {
+            player.frame_timer += dt
+            if player.frame_timer >= current_anim.frame_time {
+                player.frame_timer = 0
+                player.current_frame = (player.current_frame + 1) % current_anim.frame_count
+            }
         }
 
         // And here we do the drawing
@@ -222,6 +236,13 @@ main :: proc() {
         rl.DrawRectangleLines(METER_X, METER_Y, METER_WIDTH, METER_HEIGHT, rl.WHITE)
         // Label
         rl.DrawText("NOISE", METER_X, METER_Y + METER_HEIGHT + 2, 10, rl.WHITE)
+
+        // Game over screen
+        if game_over {
+            rl.DrawRectangle(0, 0, 640, 360, rl.Color{0, 0, 0, 180})
+            rl.DrawText("GAME OVER", 220, 150, 40, rl.RED)
+            rl.DrawText("Press R to restart", 240, 200, 20, rl.WHITE)
+        }
 
         rl.EndDrawing()
     }
