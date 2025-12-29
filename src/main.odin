@@ -1,6 +1,95 @@
 package main
 
 import rl "vendor:raylib"
+import "core:os"
+import "core:strings"
+
+TILE_SIZE :: 16
+
+Level :: struct {
+    grounds:      [dynamic]Ground,
+    ladders:      [dynamic]Ladder,
+    enemies:      [dynamic]Enemy,
+    player_spawn: rl.Vector2,
+}
+
+load_level :: proc(path: string) -> Level {
+    level := Level{
+        grounds      = make([dynamic]Ground),
+        ladders      = make([dynamic]Ladder),
+        enemies      = make([dynamic]Enemy),
+        player_spawn = {100, 317}, // default
+    }
+
+    data, ok := os.read_entire_file(path)
+    if !ok {
+        return level
+    }
+    defer delete(data)
+
+    content := string(data)
+    lines := strings.split_lines(content)
+    defer delete(lines)
+
+    for line, row in lines {
+        if len(line) == 0 do continue
+
+        for char, col in line {
+            x := f32(col * TILE_SIZE)
+            y := f32(row * TILE_SIZE)
+
+            switch char {
+            case '#':
+                // Check if we can extend the previous ground (horizontal merge)
+                merged := false
+                if len(level.grounds) > 0 {
+                    last := &level.grounds[len(level.grounds) - 1]
+                    if last.y == y && last.x + last.width == x {
+                        last.width += TILE_SIZE
+                        merged = true
+                    }
+                }
+                if !merged {
+                    append(&level.grounds, Ground{x, y, TILE_SIZE, TILE_SIZE})
+                }
+            case 'L':
+                // Check if we can extend the previous ladder (vertical merge)
+                merged := false
+                for &ladder in level.ladders {
+                    if ladder.x == x && ladder.y + ladder.height == y {
+                        ladder.height += TILE_SIZE
+                        merged = true
+                        break
+                    }
+                }
+                if !merged {
+                    append(&level.ladders, Ladder{x, y, TILE_SIZE, TILE_SIZE})
+                }
+            case 'P':
+                level.player_spawn = {x + TILE_SIZE / 2, y + TILE_SIZE / 2}
+            case 'E':
+                append(&level.enemies, Enemy{
+                    x         = x + TILE_SIZE / 2,
+                    y         = y + TILE_SIZE / 2,
+                    start_x   = x + TILE_SIZE / 2,
+                    direction = -1,
+                })
+            // Add more cases here as needed:
+            // case 'D': // door
+            // case 'S': // spikes
+            // case 'C': // collectible
+            }
+        }
+    }
+
+    return level
+}
+
+unload_level :: proc(level: ^Level) {
+    delete(level.grounds)
+    delete(level.ladders)
+    delete(level.enemies)
+}
 
 Ground :: struct {
     x, y:          f32,
@@ -44,7 +133,7 @@ Player :: struct {
     frame_timer:   f32,
 }
 
-PLAYER_SPEED  :: 200.0
+PLAYER_SPEED  :: 100.0
 JUMP_FORCE    :: 400.0
 GRAVITY       :: 800.0
 FRAME_SIZE    :: 16
@@ -74,47 +163,20 @@ main :: proc() {
         frame_time  = 0.15,
     }
     defer rl.UnloadTexture(jump_anim.texture)
-    
-    /// This sections sets up the collidables/interactables
-    ground := Ground{
-        x      = 0,
-        y      = 325,
-        width  = 640,
-        height = 35,
-    }
 
-    
-    platform := Ground{
-        x      = 150,
-        y      = 257,
-        width  = 340,
-        height = 10,
-    }
-
-    
-    ladder := Ladder{
-        x      = 140,
-        y      = 257,
-        width  = 16,
-        height = 68,  
-    }
+    // Load level from file
+    level := load_level("assets/maps/level1.txt")
+    defer unload_level(&level)
 
     player := Player{
-        x             = 320,
-        y             = 317,
+        x             = level.player_spawn.x,
+        y             = level.player_spawn.y,
         vel_y         = 0,
         grounded      = true,
         state         = .Idle,
         facing_left   = false,
         current_frame = 0,
         frame_timer   = 0,
-    }
-
-    
-    enemies := [3]Enemy{
-        {x = 580, y = 317, start_x = 580, direction = -1},
-        {x = 200, y = 317, start_x = 200, direction = 1},
-        {x = 400, y = 317, start_x = 400, direction = -1},
     }
 
     // This section details the game logic
@@ -129,13 +191,13 @@ main :: proc() {
         
         if game_over && rl.IsKeyPressed(.R) {
             noise_meter = 0
-            player.x = 320
-            player.y = 317
+            player.x = level.player_spawn.x
+            player.y = level.player_spawn.y
             player.vel_y = 0
             player.grounded = true
             player.state = .Idle
             // Reset enemies to starting positions
-            for &enemy in enemies {
+            for &enemy in level.enemies {
                 enemy.x = enemy.start_x
             }
             game_over = false
@@ -145,8 +207,14 @@ main :: proc() {
         moving := false
         climbing := false
 
-        on_ladder := player.x >= ladder.x && player.x <= ladder.x + ladder.width &&
-                     player.y >= ladder.y && player.y <= ladder.y + ladder.height
+        on_ladder := false
+        for ladder in level.ladders {
+            if player.x >= ladder.x && player.x <= ladder.x + ladder.width &&
+               player.y >= ladder.y && player.y <= ladder.y + ladder.height {
+                on_ladder = true
+                break
+            }
+        }
 
         // This section sets up movement, gravity, and tile colision
         if !game_over {
@@ -173,9 +241,9 @@ main :: proc() {
                 player.vel_y = 0
                 climbing = true
             }
-            // Add noise when climbing (4 per second)
+            // Add noise when climbing (8 per second)
             if climbing {
-                noise_meter += 4.0 * dt
+                noise_meter += 8.0 * dt
             }
         }
 
@@ -196,35 +264,33 @@ main :: proc() {
             player.vel_y = 0
         }
 
-        // Platform collision (only when falling)
-        platform_top := platform.y - 8
-        if player.x >= platform.x && player.x <= platform.x + platform.width {
-            if player.y >= platform_top && player.y <= platform_top + 16 && player.vel_y >= 0 {
-                player.y = platform_top
-                player.vel_y = 0
-                if was_airborne && !on_ladder {
-                    noise_meter += 10  // Landing adds noise
+        // Ground/platform collision (only when falling)
+        for ground in level.grounds {
+            ground_top := ground.y - 8
+            if player.x >= ground.x && player.x <= ground.x + ground.width {
+                if player.y >= ground_top && player.y <= ground_top + 16 && player.vel_y >= 0 {
+                    player.y = ground_top
+                    player.vel_y = 0
+                    if was_airborne && !on_ladder {
+                        noise_meter += 10  // Landing adds noise
+                    }
+                    player.grounded = true
                 }
-                player.grounded = true
             }
-        }
-
-        ground_top := ground.y - 8
-        if player.y >= ground_top {
-            player.y = ground_top
-            player.vel_y = 0
-            if was_airborne && !on_ladder {
-                noise_meter += 10  // Landing adds noise
-            }
-            player.grounded = true
         }
 
         // Check if player is still grounded (for walking off platforms)
         if player.grounded && !on_ladder {
-            on_ground := player.y >= ground_top - 1
-            on_platform := player.x >= platform.x && player.x <= platform.x + platform.width &&
-                           player.y >= platform_top - 1 && player.y <= platform_top + 1
-            if !on_ground && !on_platform {
+            still_on_ground := false
+            for ground in level.grounds {
+                ground_top := ground.y - 8
+                if player.x >= ground.x && player.x <= ground.x + ground.width &&
+                   player.y >= ground_top - 1 && player.y <= ground_top + 1 {
+                    still_on_ground = true
+                    break
+                }
+            }
+            if !still_on_ground {
                 player.grounded = false
             }
         }
@@ -248,8 +314,11 @@ main :: proc() {
         }
 
         if moving {
-            // Increase by 0.01 * PLAYER_SPEED per second when movin        } else {
-            noise_meter -= 0.01 * PLAYER_SPEED * dt / 3
+            // Increase by +1 every 0.25 seconds (+4 per second)
+            noise_meter += 4.0 * dt
+        } else {
+            // Decrease by 2 per second (half of movement rate)
+            noise_meter -= 2.0 * dt
         }
         noise_meter = clamp(noise_meter, 0, 100)
 
@@ -259,7 +328,7 @@ main :: proc() {
 
         // Enemy patrol movement and collision detection
         visibility_radius := 20.0 + noise_meter
-        for &enemy in enemies {
+        for &enemy in level.enemies {
             enemy.x += enemy.direction * ENEMY_SPEED * dt
             if enemy.x <= enemy.start_x - ENEMY_PATROL_RANGE {
                 enemy.direction = 1
@@ -302,36 +371,32 @@ main :: proc() {
         rl.BeginDrawing()
         rl.ClearBackground(rl.BLACK)
 
-        
-        rl.DrawRectangle(
-            i32(ground.x),
-            i32(ground.y),
-            i32(ground.width),
-            i32(ground.height),
-            rl.GRAY,
-        )
+        // Draw all grounds
+        for ground in level.grounds {
+            rl.DrawRectangle(
+                i32(ground.x),
+                i32(ground.y),
+                i32(ground.width),
+                i32(ground.height),
+                rl.GRAY,
+            )
+        }
 
-        // Draw platform
-        rl.DrawRectangle(
-            i32(platform.x),
-            i32(platform.y),
-            i32(platform.width),
-            i32(platform.height),
-            rl.GRAY,
-        )
-
-        // Draw ladder
-        rl.DrawRectangle(
-            i32(ladder.x),
-            i32(ladder.y),
-            i32(ladder.width),
-            i32(ladder.height),
-            rl.BROWN,
-        )
-        // Ladder rungs
-        for i in 0..<5 {
-            rung_y := i32(ladder.y) + i32(f32(i) * ladder.height / 5) + 6
-            rl.DrawRectangle(i32(ladder.x) + 2, rung_y, i32(ladder.width) - 4, 2, rl.DARKBROWN)
+        // Draw all ladders
+        for ladder in level.ladders {
+            rl.DrawRectangle(
+                i32(ladder.x),
+                i32(ladder.y),
+                i32(ladder.width),
+                i32(ladder.height),
+                rl.BROWN,
+            )
+            // Ladder rungs
+            rung_count := i32(ladder.height / TILE_SIZE) + 1
+            for i in 0..<rung_count {
+                rung_y := i32(ladder.y) + i32(f32(i) * ladder.height / f32(rung_count)) + 6
+                rl.DrawRectangle(i32(ladder.x) + 2, rung_y, i32(ladder.width) - 4, 2, rl.DARKBROWN)
+            }
         }
 
         
@@ -360,7 +425,7 @@ main :: proc() {
 
         // Draw enemies
         vis_radius := 20.0 + noise_meter
-        for enemy in enemies {
+        for enemy in level.enemies {
             // Draw visibility radius (circle)
             rl.DrawCircleLines(i32(enemy.x), i32(enemy.y), vis_radius, rl.Color{255, 100, 100, 150})
             rl.DrawCircle(i32(enemy.x), i32(enemy.y), vis_radius, rl.Color{255, 0, 0, 30})
