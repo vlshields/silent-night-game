@@ -11,6 +11,12 @@ PlayerState :: enum {
     Idle,
     Moving,
     Jumping,
+    Climbing,
+}
+
+Ladder :: struct {
+    x, y:          f32,
+    width, height: f32,
 }
 
 Animation :: struct {
@@ -20,8 +26,13 @@ Animation :: struct {
 }
 
 Enemy :: struct {
-    x, y: f32,
+    x, y:      f32,
+    start_x:   f32,
+    direction: f32,  // 1 = right, -1 = left
 }
+
+ENEMY_SPEED :: 30.0
+ENEMY_PATROL_RANGE :: 30.0
 
 Player :: struct {
     x, y:          f32,
@@ -71,6 +82,22 @@ main :: proc() {
         height = 35,
     }
 
+    // Upper platform (60px above enemies at y=317)
+    platform := Ground{
+        x      = 150,
+        y      = 257,
+        width  = 340,
+        height = 10,
+    }
+
+    // Ladder connecting ground to platform
+    ladder := Ladder{
+        x      = 140,
+        y      = 257,
+        width  = 16,
+        height = 68,  // From platform (257) to ground (325)
+    }
+
     player := Player{
         x             = 320,
         y             = 317,
@@ -82,10 +109,11 @@ main :: proc() {
         frame_timer   = 0,
     }
 
-    // Enemy patroller on the right side of the map
-    enemy := Enemy{
-        x = 580,
-        y = 317,
+    // Enemy patrollers
+    enemies := [3]Enemy{
+        {x = 580, y = 317, start_x = 580, direction = -1},
+        {x = 200, y = 317, start_x = 200, direction = 1},
+        {x = 400, y = 317, start_x = 400, direction = -1},
     }
 
     // Noise meter: 0 to 100
@@ -105,11 +133,20 @@ main :: proc() {
             player.vel_y = 0
             player.grounded = true
             player.state = .Idle
+            // Reset enemies to starting positions
+            for &enemy in enemies {
+                enemy.x = enemy.start_x
+            }
             game_over = false
         }
 
         // Track if moving this frame
         moving := false
+        climbing := false
+
+        // Check if player is on the ladder
+        on_ladder := player.x >= ladder.x && player.x <= ladder.x + ladder.width &&
+                     player.y >= ladder.y && player.y <= ladder.y + ladder.height
 
         // This section sets up movement, gravity, and tile colision
         if !game_over {
@@ -124,8 +161,25 @@ main :: proc() {
             moving = true
         }
 
+        // Climbing controls (W/S)
+        if on_ladder {
+            if rl.IsKeyDown(.W) {
+                player.y -= PLAYER_SPEED * 0.5 * dt
+                player.vel_y = 0
+                climbing = true
+            }
+            if rl.IsKeyDown(.S) {
+                player.y += PLAYER_SPEED * 0.5 * dt
+                player.vel_y = 0
+                climbing = true
+            }
+            // Add noise when climbing (4 per second)
+            if climbing {
+                noise_meter += 4.0 * dt
+            }
+        }
 
-        if rl.IsKeyPressed(.SPACE) && player.grounded {
+        if rl.IsKeyPressed(.SPACE) && player.grounded && !on_ladder {
             player.vel_y = -JUMP_FORCE
             player.grounded = false
             noise_meter += 20  // Jumping adds noise
@@ -133,29 +187,65 @@ main :: proc() {
 
         was_airborne := !player.grounded
 
-        if !player.grounded {
+        // Apply gravity only when not on ladder
+        if !player.grounded && !on_ladder {
             player.vel_y += GRAVITY * dt
             player.y += player.vel_y * dt
+        } else if on_ladder && !climbing {
+            // Hold position on ladder when not actively climbing
+            player.vel_y = 0
         }
 
+        // Platform collision (only when falling)
+        platform_top := platform.y - 8
+        if player.x >= platform.x && player.x <= platform.x + platform.width {
+            if player.y >= platform_top && player.y <= platform_top + 16 && player.vel_y >= 0 {
+                player.y = platform_top
+                player.vel_y = 0
+                if was_airborne && !on_ladder {
+                    noise_meter += 10  // Landing adds noise
+                }
+                player.grounded = true
+            }
+        }
+
+        // Ground collision
         ground_top := ground.y - 8
         if player.y >= ground_top {
             player.y = ground_top
             player.vel_y = 0
-            player.grounded = true
-            if was_airborne {
+            if was_airborne && !on_ladder {
                 noise_meter += 10  // Landing adds noise
+            }
+            player.grounded = true
+        }
+
+        // Check if player is still grounded (for walking off platforms)
+        if player.grounded && !on_ladder {
+            on_ground := player.y >= ground_top - 1
+            on_platform := player.x >= platform.x && player.x <= platform.x + platform.width &&
+                           player.y >= platform_top - 1 && player.y <= platform_top + 1
+            if !on_ground && !on_platform {
+                player.grounded = false
             }
         }
 
         // This sections sets up animation based on player state
         prev_state := player.state
-        if !player.grounded {
+        if climbing {
+            player.state = .Climbing
+        } else if !player.grounded {
             player.state = .Jumping
         } else if moving {
             player.state = .Moving
         } else {
             player.state = .Idle
+        }
+
+        // Reset animation frame when state changes
+        if player.state != prev_state {
+            player.current_frame = 0
+            player.frame_timer = 0
         }
 
         // Update noise meter
@@ -174,13 +264,23 @@ main :: proc() {
             game_over = true
         }
 
-        // Check if player is within enemy's visibility radius
+        // Enemy patrol movement and collision detection
         visibility_radius := 20.0 + noise_meter
-        dx := player.x - enemy.x
-        dy := player.y - enemy.y
-        distance := rl.Vector2Length(rl.Vector2{dx, dy})
-        if distance <= visibility_radius {
-            game_over = true
+        for &enemy in enemies {
+            enemy.x += enemy.direction * ENEMY_SPEED * dt
+            if enemy.x <= enemy.start_x - ENEMY_PATROL_RANGE {
+                enemy.direction = 1
+            } else if enemy.x >= enemy.start_x + ENEMY_PATROL_RANGE {
+                enemy.direction = -1
+            }
+
+            // Check if player is within enemy's visibility radius
+            dx := player.x - enemy.x
+            dy := player.y - enemy.y
+            distance := rl.Vector2Length(rl.Vector2{dx, dy})
+            if distance <= visibility_radius {
+                game_over = true
+            }
         }
         } // end if !game_over
 
@@ -193,6 +293,8 @@ main :: proc() {
             current_anim = &move_anim
         case .Jumping:
             current_anim = &jump_anim
+        case .Climbing:
+            current_anim = &idle_anim  // Reuse idle animation for climbing
         }
 
         if !game_over {
@@ -215,6 +317,29 @@ main :: proc() {
             i32(ground.height),
             rl.GRAY,
         )
+
+        // Draw platform
+        rl.DrawRectangle(
+            i32(platform.x),
+            i32(platform.y),
+            i32(platform.width),
+            i32(platform.height),
+            rl.GRAY,
+        )
+
+        // Draw ladder
+        rl.DrawRectangle(
+            i32(ladder.x),
+            i32(ladder.y),
+            i32(ladder.width),
+            i32(ladder.height),
+            rl.BROWN,
+        )
+        // Ladder rungs
+        for i in 0..<5 {
+            rung_y := i32(ladder.y) + i32(f32(i) * ladder.height / 5) + 6
+            rl.DrawRectangle(i32(ladder.x) + 2, rung_y, i32(ladder.width) - 4, 2, rl.DARKBROWN)
+        }
 
         
         source_rect := rl.Rectangle{
@@ -240,13 +365,15 @@ main :: proc() {
             rl.WHITE,
         )
 
-        // Draw enemy visibility radius (circle)
+        // Draw enemies
         vis_radius := 20.0 + noise_meter
-        rl.DrawCircleLines(i32(enemy.x), i32(enemy.y), vis_radius, rl.Color{255, 100, 100, 150})
-        rl.DrawCircle(i32(enemy.x), i32(enemy.y), vis_radius, rl.Color{255, 0, 0, 30})
-
-        // Draw enemy (16x16 ellipse placeholder)
-        rl.DrawEllipse(i32(enemy.x), i32(enemy.y), 8, 8, rl.RED)
+        for enemy in enemies {
+            // Draw visibility radius (circle)
+            rl.DrawCircleLines(i32(enemy.x), i32(enemy.y), vis_radius, rl.Color{255, 100, 100, 150})
+            rl.DrawCircle(i32(enemy.x), i32(enemy.y), vis_radius, rl.Color{255, 0, 0, 30})
+            // Draw enemy (16x16 ellipse placeholder)
+            rl.DrawEllipse(i32(enemy.x), i32(enemy.y), 8, 8, rl.RED)
+        }
 
         // Draw noise meter
         METER_X      :: 10
