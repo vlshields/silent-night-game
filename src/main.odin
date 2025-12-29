@@ -19,6 +19,10 @@ Animation :: struct {
     frame_time:  f32,
 }
 
+Enemy :: struct {
+    x, y: f32,
+}
+
 Player :: struct {
     x, y:          f32,
     vel_y:         f32,
@@ -76,6 +80,12 @@ main :: proc() {
         facing_left   = false,
         current_frame = 0,
         frame_timer   = 0,
+    }
+
+    // Enemy patroller on the right side of the map
+    enemy := Enemy{
+        x = 580,
+        y = 317,
     }
 
     // Noise meter: 0 to 100
@@ -159,8 +169,17 @@ main :: proc() {
         // Clamp noise meter between 0 and 100
         noise_meter = clamp(noise_meter, 0, 100)
 
-        // Check for game over
+        // Check for game over (noise meter)
         if noise_meter >= 100 {
+            game_over = true
+        }
+
+        // Check if player is within enemy's visibility radius
+        visibility_radius := 20.0 + noise_meter
+        dx := player.x - enemy.x
+        dy := player.y - enemy.y
+        distance := rl.Vector2Length(rl.Vector2{dx, dy})
+        if distance <= visibility_radius {
             game_over = true
         }
         } // end if !game_over
@@ -220,6 +239,14 @@ main :: proc() {
             0,
             rl.WHITE,
         )
+
+        // Draw enemy visibility radius (circle)
+        vis_radius := 20.0 + noise_meter
+        rl.DrawCircleLines(i32(enemy.x), i32(enemy.y), vis_radius, rl.Color{255, 100, 100, 150})
+        rl.DrawCircle(i32(enemy.x), i32(enemy.y), vis_radius, rl.Color{255, 0, 0, 30})
+
+        // Draw enemy (16x16 ellipse placeholder)
+        rl.DrawEllipse(i32(enemy.x), i32(enemy.y), 8, 8, rl.RED)
 
         // Draw noise meter
         METER_X      :: 10
