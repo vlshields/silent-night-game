@@ -27,6 +27,6 @@ Rock :: struct {
 }
 
 PLAYER_SPEED  :: 100.0
-JUMP_FORCE    :: 400.0
+JUMP_FORCE    :: 300.0
 GRAVITY       :: 800.0
 FRAME_SIZE    :: 16
