@@ -342,6 +342,8 @@ main :: proc() {
     // This section details the game logic
     noise_meter: f32 = 0
     game_over := false
+    level_complete := false  // Flag for level transition
+    current_level := 1
     rock := Rock{}  // Thrown rock projectile
 
     // Tutorial state
@@ -441,6 +443,55 @@ main :: proc() {
                 item.collected = false
             }
             game_over = false
+        }
+
+        // Level transition
+        if level_complete {
+            current_level += 1
+            level_complete = false
+
+            // Unload current level and load next
+            unload_level(&level)
+
+            if current_level == 2 {
+                level = load_level("assets/maps/level2.txt")
+                // Disable tutorial for level 2
+                tutorial_step = .Complete
+                tutorial_active = false
+            } else {
+                // Win condition - completed all levels
+                // For now, just reload level 1 (could show win screen instead)
+                current_level = 1
+                level = load_level("assets/maps/level1.txt")
+            }
+
+            // Reset player state for new level
+            player.x = level.player_spawn.x
+            player.y = level.player_spawn.y
+            player.vel_y = 0
+            player.grounded = true
+            player.state = .Idle
+            player.has_rock = false
+            rock = Rock{}
+            noise_meter = 0
+
+            // Update tutorial arrow positions for new level
+            first_ladder_x = 0
+            first_ladder_top = 999999
+            for ladder in level.ladders {
+                if first_ladder_x == 0 || ladder.x < first_ladder_x {
+                    first_ladder_x = ladder.x
+                    first_ladder_top = ladder.y
+                }
+            }
+            for item in level.items {
+                item_pos = {item.x + item.width / 2, item.y}
+                break
+            }
+            for trap in level.traps {
+                trap_pos = {trap.x + trap.width / 2, trap.y}
+                break
+            }
         }
 
         // Track if moving this frame
@@ -560,6 +611,15 @@ main :: proc() {
                         tutorial_active = true
                     }
                 }
+            }
+        }
+
+        // Door collision - level transition
+        for door in level.doors {
+            if player.x >= door.x && player.x <= door.x + door.width &&
+               player.y >= door.y && player.y <= door.y + door.height + 8 {
+                level_complete = true
+                break
             }
         }
 
