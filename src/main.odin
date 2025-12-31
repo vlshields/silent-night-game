@@ -392,8 +392,8 @@ main :: proc() {
             rock.x = player.x
             rock.y = player.y
             rock.start_x = player.x
-            // Throw in direction player is facing - travels straight for 320px then drops
-            rock.vel_x = 80.0 if !player.facing_left else -80.0
+            // Throw in direction player is facing - travels straight for 120px then drops
+            rock.vel_x = 160.0 if !player.facing_left else -160.0
             rock.vel_y = 0  // No vertical velocity until rock drops
             player.has_rock = false
             noise_meter += 10  // +10 noise when thrown
@@ -403,11 +403,11 @@ main :: proc() {
         if rock.active {
             rock.x += rock.vel_x * dt
 
-            // Check if rock has traveled 320px horizontally
-            if abs(rock.x - rock.start_x) >= 320.0 {
-                // Rock falls straight down after 320px travel
+            // Check if rock has traveled 120px horizontally
+            if abs(rock.x - rock.start_x) >= 120.0 {
+                // Rock falls straight down after 120px travel
                 rock.vel_x = 0
-                rock.vel_y += GRAVITY * 0.5 * dt  // Apply gravity only after 320px
+                rock.vel_y += GRAVITY * 0.5 * dt  // Apply gravity only after 120px
                 rock.y += rock.vel_y * dt
             }
 
