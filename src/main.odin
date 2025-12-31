@@ -14,6 +14,8 @@ Level :: struct {
     doors:        [dynamic]Door,
     traps:        [dynamic]Trap,
     items:        [dynamic]Item,
+    moon_tiles:   [dynamic]MoonTile,
+    stars:        [dynamic]Star,
     player_spawn: rl.Vector2,
     width:        f32,
     height:       f32,
@@ -27,8 +29,14 @@ load_level :: proc(path: string) -> Level {
         doors        = make([dynamic]Door),
         traps        = make([dynamic]Trap),
         items        = make([dynamic]Item),
+        moon_tiles   = make([dynamic]MoonTile),
+        stars        = make([dynamic]Star),
         player_spawn = {100, 317}, // default
     }
+
+    // Track moon grid origin to calculate relative grid positions
+    moon_origin_x: i32 = -1
+    moon_origin_y: i32 = -1
 
     data, ok := os.read_entire_file(path)
     if !ok {
@@ -93,12 +101,34 @@ load_level :: proc(path: string) -> Level {
                 append(&level.traps, Trap{x, y, TILE_SIZE, TILE_SIZE, false})
             case 'I':
                 append(&level.items, Item{x, y, TILE_SIZE, TILE_SIZE, false})
+            case 'M':
+                // Moon tile - track origin to calculate grid position
+                if moon_origin_x < 0 || col < int(moon_origin_x) {
+                    moon_origin_x = i32(col)
+                }
+                if moon_origin_y < 0 || row < int(moon_origin_y) {
+                    moon_origin_y = i32(row)
+                }
+                append(&level.moon_tiles, MoonTile{
+                    x      = x,
+                    y      = y,
+                    grid_x = i32(col),  // Temporary, will recalculate
+                    grid_y = i32(row),  // Temporary, will recalculate
+                })
+            case 'S':
+                append(&level.stars, Star{x, y})
             }
         }
     }
 
     level.width = f32(max_cols * TILE_SIZE)
     level.height = f32(row_count * TILE_SIZE)
+
+    // Recalculate moon grid positions relative to origin
+    for &moon in level.moon_tiles {
+        moon.grid_x = moon.grid_x - moon_origin_x
+        moon.grid_y = moon.grid_y - moon_origin_y
+    }
 
     return level
 }
@@ -110,6 +140,8 @@ unload_level :: proc(level: ^Level) {
     delete(level.doors)
     delete(level.traps)
     delete(level.items)
+    delete(level.moon_tiles)
+    delete(level.stars)
 }
 
 Ground :: struct {
@@ -159,6 +191,17 @@ Item :: struct {
     x, y:          f32,
     width, height: f32,
     collected:     bool,
+}
+
+// Background elements for parallax scrolling
+MoonTile :: struct {
+    x, y:       f32,  // World position
+    grid_x:     i32,  // Grid position within 4x4 moon (0-3)
+    grid_y:     i32,  // Grid position within 4x4 moon (0-3)
+}
+
+Star :: struct {
+    x, y:       f32,  // World position
 }
 
 Rock :: struct {
@@ -263,6 +306,23 @@ main :: proc() {
         frame_time  = 0.15,
     }
     defer rl.UnloadTexture(enemy_stunned_anim.texture)
+
+    // Load item/object textures
+    rock_texture := rl.LoadTexture("assets/sprites/Item_Rock_Pickup.png")
+    defer rl.UnloadTexture(rock_texture)
+
+    trap_texture := rl.LoadTexture("assets/sprites/Trap_tile.png")
+    defer rl.UnloadTexture(trap_texture)
+
+    door_texture := rl.LoadTexture("assets/sprites/Level_door_exit.png")
+    defer rl.UnloadTexture(door_texture)
+
+    // Background textures for parallax
+    moon_texture := rl.LoadTexture("assets/sprites/Evil_moon_bg.png")
+    defer rl.UnloadTexture(moon_texture)
+
+    star_texture := rl.LoadTexture("assets/sprites/star_bg.png")
+    defer rl.UnloadTexture(star_texture)
 
     // Load level from file
     level := load_level("assets/maps/level1.txt")
@@ -678,6 +738,48 @@ main :: proc() {
         // Begin camera mode for world drawing
         rl.BeginMode2D(camera)
 
+        // Draw parallax background elements
+        // These move slower than the camera to create depth illusion
+        // Parallax factor: higher = less movement (more distant feel)
+        STAR_PARALLAX :: 0.5   // Stars are far away, barely move
+        MOON_PARALLAX :: 0.65  // Moon is closer than stars, subtle movement
+
+        // Calculate camera offset from level center for parallax
+        level_center_x := level.width / 2
+        level_center_y := level.height / 2
+        camera_offset_x := camera.target.x - level_center_x
+        camera_offset_y := camera.target.y - level_center_y
+
+        // Draw stars (furthest back)
+        for star in level.stars {
+            // Apply parallax: move opposite to camera at reduced rate
+            parallax_x := star.x - camera_offset_x * (1 - STAR_PARALLAX)
+            parallax_y := star.y - camera_offset_y * (1 - STAR_PARALLAX)
+            rl.DrawTexture(star_texture, i32(parallax_x), i32(parallax_y), rl.WHITE)
+        }
+
+        // Draw moon tiles (each 'M' is one 16x16 cell of the 64x64 moon texture)
+        for moon in level.moon_tiles {
+            // Apply parallax
+            parallax_x := moon.x - camera_offset_x * (1 - MOON_PARALLAX)
+            parallax_y := moon.y - camera_offset_y * (1 - MOON_PARALLAX)
+
+            // Source rect: which 16x16 portion of the 64x64 texture
+            moon_source := rl.Rectangle{
+                x      = f32(moon.grid_x * TILE_SIZE),
+                y      = f32(moon.grid_y * TILE_SIZE),
+                width  = TILE_SIZE,
+                height = TILE_SIZE,
+            }
+            moon_dest := rl.Rectangle{
+                x      = parallax_x,
+                y      = parallax_y,
+                width  = TILE_SIZE,
+                height = TILE_SIZE,
+            }
+            rl.DrawTexturePro(moon_texture, moon_source, moon_dest, rl.Vector2{0, 0}, 0, rl.WHITE)
+        }
+
         // Draw all grounds
         for ground in level.grounds {
             rl.DrawRectangle(
@@ -706,39 +808,20 @@ main :: proc() {
             }
         }
 
-        // Draw all doors (placeholder - blue rectangle)
+        // Draw all doors
         for door in level.doors {
-            rl.DrawRectangle(
-                i32(door.x),
-                i32(door.y),
-                i32(door.width),
-                i32(door.height),
-                rl.BLUE,
-            )
+            rl.DrawTexture(door_texture, i32(door.x), i32(door.y), rl.WHITE)
         }
 
-        // Draw all traps (slightly off-colored tile)
+        // Draw all traps
         for trap in level.traps {
-            trap_color := rl.Color{100, 100, 100, 255} if !trap.triggered else rl.Color{80, 80, 80, 255}
-            rl.DrawRectangle(
-                i32(trap.x),
-                i32(trap.y),
-                i32(trap.width),
-                i32(trap.height),
-                trap_color,
-            )
+            rl.DrawTexture(trap_texture, i32(trap.x), i32(trap.y), rl.WHITE)
         }
 
-        // Draw all items (placeholder - yellow rectangle)
+        // Draw all items (rock pickups)
         for item in level.items {
             if !item.collected {
-                rl.DrawRectangle(
-                    i32(item.x),
-                    i32(item.y),
-                    i32(item.width),
-                    i32(item.height),
-                    rl.YELLOW,
-                )
+                rl.DrawTexture(rock_texture, i32(item.x), i32(item.y), rl.WHITE)
             }
         }
 
@@ -804,9 +887,11 @@ main :: proc() {
             )
         }
 
-        // Draw rock projectile
+        // Draw rock projectile (scaled down to 8x8)
         if rock.active {
-            rl.DrawCircle(i32(rock.x), i32(rock.y), 4, rl.Color{139, 119, 101, 255})  // Brown rock
+            rock_source := rl.Rectangle{0, 0, 16, 16}
+            rock_dest := rl.Rectangle{rock.x - 4, rock.y - 4, 8, 8}  // Centered, half size
+            rl.DrawTexturePro(rock_texture, rock_source, rock_dest, rl.Vector2{0, 0}, 0, rl.WHITE)
         }
 
         // End camera mode before drawing UI
