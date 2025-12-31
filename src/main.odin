@@ -10,6 +10,9 @@ Level :: struct {
     grounds:      [dynamic]Ground,
     ladders:      [dynamic]Ladder,
     enemies:      [dynamic]Enemy,
+    doors:        [dynamic]Door,
+    traps:        [dynamic]Trap,
+    items:        [dynamic]Item,
     player_spawn: rl.Vector2,
 }
 
@@ -18,6 +21,9 @@ load_level :: proc(path: string) -> Level {
         grounds      = make([dynamic]Ground),
         ladders      = make([dynamic]Ladder),
         enemies      = make([dynamic]Enemy),
+        doors        = make([dynamic]Door),
+        traps        = make([dynamic]Trap),
+        items        = make([dynamic]Item),
         player_spawn = {100, 317}, // default
     }
 
@@ -74,10 +80,12 @@ load_level :: proc(path: string) -> Level {
                     start_x   = x + TILE_SIZE / 2,
                     direction = -1,
                 })
-            // Add more cases here as needed:
-            // case 'D': // door
-            // case 'S': // spikes
-            // case 'C': // collectible
+            case 'D':
+                append(&level.doors, Door{x, y, TILE_SIZE, TILE_SIZE})
+            case 'T':
+                append(&level.traps, Trap{x, y, TILE_SIZE, TILE_SIZE, false})
+            case 'I':
+                append(&level.items, Item{x, y, TILE_SIZE, TILE_SIZE, false})
             }
         }
     }
@@ -89,6 +97,9 @@ unload_level :: proc(level: ^Level) {
     delete(level.grounds)
     delete(level.ladders)
     delete(level.enemies)
+    delete(level.doors)
+    delete(level.traps)
+    delete(level.items)
 }
 
 Ground :: struct {
@@ -118,6 +129,23 @@ Enemy :: struct {
     x, y:      f32,
     start_x:   f32,
     direction: f32,  // 1 = right, -1 = left
+}
+
+Door :: struct {
+    x, y:          f32,
+    width, height: f32,
+}
+
+Trap :: struct {
+    x, y:          f32,
+    width, height: f32,
+    triggered:     bool,
+}
+
+Item :: struct {
+    x, y:          f32,
+    width, height: f32,
+    collected:     bool,
 }
 
 ENEMY_SPEED :: 30.0
@@ -199,6 +227,14 @@ main :: proc() {
             // Reset enemies to starting positions
             for &enemy in level.enemies {
                 enemy.x = enemy.start_x
+            }
+            // Reset traps
+            for &trap in level.traps {
+                trap.triggered = false
+            }
+            // Reset items
+            for &item in level.items {
+                item.collected = false
             }
             game_over = false
         }
@@ -292,6 +328,18 @@ main :: proc() {
             }
             if !still_on_ground {
                 player.grounded = false
+            }
+        }
+
+        // Trap collision - adds +40 noise when stepped on (once per trap)
+        for &trap in level.traps {
+            if !trap.triggered {
+                trap_top := trap.y - 8
+                if player.x >= trap.x && player.x <= trap.x + trap.width &&
+                   player.y >= trap_top && player.y <= trap_top + 8 {
+                    trap.triggered = true
+                    noise_meter += 40
+                }
             }
         }
 
@@ -399,7 +447,43 @@ main :: proc() {
             }
         }
 
-        
+        // Draw all doors (placeholder - blue rectangle)
+        for door in level.doors {
+            rl.DrawRectangle(
+                i32(door.x),
+                i32(door.y),
+                i32(door.width),
+                i32(door.height),
+                rl.BLUE,
+            )
+        }
+
+        // Draw all traps (slightly off-colored tile)
+        for trap in level.traps {
+            trap_color := rl.Color{100, 100, 100, 255} if !trap.triggered else rl.Color{80, 80, 80, 255}
+            rl.DrawRectangle(
+                i32(trap.x),
+                i32(trap.y),
+                i32(trap.width),
+                i32(trap.height),
+                trap_color,
+            )
+        }
+
+        // Draw all items (placeholder - yellow rectangle)
+        for item in level.items {
+            if !item.collected {
+                rl.DrawRectangle(
+                    i32(item.x),
+                    i32(item.y),
+                    i32(item.width),
+                    i32(item.height),
+                    rl.YELLOW,
+                )
+            }
+        }
+
+
         source_rect := rl.Rectangle{
             x      = f32(player.current_frame * FRAME_SIZE),
             y      = 0,
