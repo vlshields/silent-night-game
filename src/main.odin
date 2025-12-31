@@ -266,9 +266,24 @@ JUMP_FORCE    :: 400.0
 GRAVITY       :: 800.0
 FRAME_SIZE    :: 16
 
+GAME_WIDTH  :: 640
+GAME_HEIGHT :: 360
+
 main :: proc() {
-    rl.InitWindow(640, 360, "Silent Night")
+    // Get monitor resolution for fullscreen
+    rl.SetConfigFlags({.FULLSCREEN_MODE})
+    rl.InitWindow(0, 0, "Silent Night")  // 0,0 uses monitor resolution
     defer rl.CloseWindow()
+
+    screen_width := rl.GetScreenWidth()
+    screen_height := rl.GetScreenHeight()
+
+    // Create render texture at game resolution for pixel-perfect scaling
+    target := rl.LoadRenderTexture(GAME_WIDTH, GAME_HEIGHT)
+    defer rl.UnloadRenderTexture(target)
+
+    // Calculate scale to fit screen while maintaining aspect ratio
+    scale := min(f32(screen_width) / GAME_WIDTH, f32(screen_height) / GAME_HEIGHT)
 
     // Here we configure the animations
     idle_anim := Animation{
@@ -374,7 +389,7 @@ main :: proc() {
     // Camera setup - follows the player
     camera := rl.Camera2D{
         target = {player.x, player.y},
-        offset = {320, 180},  // Center of 640x360 window
+        offset = {GAME_WIDTH / 2, GAME_HEIGHT / 2},  // Center of game resolution
         rotation = 0,
         zoom = 1,
     }
@@ -792,7 +807,8 @@ main :: proc() {
         camera.target.y = clamp(player.y, camera.offset.y, level.height - camera.offset.y)
 
         // And here we do the drawing
-        rl.BeginDrawing()
+        // First render to the game-resolution texture
+        rl.BeginTextureMode(target)
         rl.ClearBackground(rl.BLACK)
 
         // Begin camera mode for world drawing
@@ -1093,10 +1109,31 @@ main :: proc() {
 
         // Game over screen
         if game_over {
-            rl.DrawRectangle(0, 0, 640, 360, rl.Color{0, 0, 0, 180})
+            rl.DrawRectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, rl.Color{0, 0, 0, 180})
             rl.DrawText("GAME OVER", 220, 150, 40, rl.RED)
             rl.DrawText("Press R to restart", 240, 200, 20, rl.WHITE)
         }
+
+        rl.EndTextureMode()
+
+        // Now draw the render texture scaled to fit the screen
+        rl.BeginDrawing()
+        rl.ClearBackground(rl.BLACK)
+
+        // Draw render texture centered and scaled
+        rl.DrawTexturePro(
+            target.texture,
+            rl.Rectangle{0, 0, GAME_WIDTH, -GAME_HEIGHT},  // Flip Y (render textures are flipped)
+            rl.Rectangle{
+                (f32(screen_width) - GAME_WIDTH * scale) * 0.5,
+                (f32(screen_height) - GAME_HEIGHT * scale) * 0.5,
+                GAME_WIDTH * scale,
+                GAME_HEIGHT * scale,
+            },
+            rl.Vector2{0, 0},
+            0,
+            rl.WHITE,
+        )
 
         rl.EndDrawing()
     }
