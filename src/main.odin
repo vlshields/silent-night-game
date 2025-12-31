@@ -3,6 +3,7 @@ package main
 import rl "vendor:raylib"
 import "core:os"
 import "core:strings"
+import "core:math"
 
 TILE_SIZE :: 16
 
@@ -166,6 +167,34 @@ Rock :: struct {
     start_x:    f32,  // Track starting position for 40px travel
 }
 
+TutorialStep :: enum {
+    Intro1,        // Movement and noise meter
+    Intro2,        // Guard detection
+    Intro3,        // Sensory regions grow
+    ArrowLadder,   // Flashing arrow + climb dialogue
+    WaitForClimb,  // Player must climb
+    ArrowItem,     // Flashing arrow + rock dialogue
+    RockInfo2,     // Miss penalty dialogue
+    WaitForPickup, // Player must pick up
+    ThrowInfo,     // Left click dialogue
+    Complete,      // Tutorial done
+}
+
+// Tutorial dialogue strings
+TUTORIAL_INTRO1 :: "Shhhh, be quiet! Each step you take with A or D will\nincrease your Noise meter. So will jumping (Spacebar)\nand landing on the ground."
+
+TUTORIAL_INTRO2 :: "If your Noise meter becomes full, you will be captured!\nIf any patrolling guard sees or hears you, you will be\ncaptured. Stay out of their sensory region shown in red!"
+
+TUTORIAL_INTRO3 :: "The guards' sensory regions will grow as your\nNoise meter grows too."
+
+TUTORIAL_LADDER :: "Head up this ladder with W.\nBut be careful, climbing makes noise too!"
+
+TUTORIAL_ROCK1 :: "If you find a rock, you can pick it up and throw it.\nIf it hits a guard, they will be stunned for 5 seconds."
+
+TUTORIAL_ROCK2 :: "But if you miss, you will make a lot of noise!\nMake sure you are close enough to hit the guard!"
+
+TUTORIAL_THROW :: "Left click in the direction of the guard to stun them."
+
 ENEMY_SPEED :: 30.0
 ENEMY_PATROL_RANGE :: 30.0
 
@@ -231,6 +260,26 @@ main :: proc() {
     game_over := false
     rock := Rock{}  // Thrown rock projectile
 
+    // Tutorial state
+    tutorial_step := TutorialStep.Intro1
+    tutorial_active := true  // Pauses game when true
+    arrow_timer: f32 = 0     // For flashing animation
+    first_ladder_x: f32 = 0
+    first_ladder_top: f32 = 999999
+    item_pos := rl.Vector2{0, 0}
+
+    // Find first ladder position and item position for tutorial arrows
+    for ladder in level.ladders {
+        if first_ladder_x == 0 || ladder.x < first_ladder_x {
+            first_ladder_x = ladder.x
+            first_ladder_top = ladder.y
+        }
+    }
+    for item in level.items {
+        item_pos = {item.x + item.width / 2, item.y}
+        break  // Just get first item position
+    }
+
     // Camera setup - follows the player
     camera := rl.Camera2D{
         target = {player.x, player.y},
@@ -244,7 +293,34 @@ main :: proc() {
     for !rl.WindowShouldClose() {
         dt := rl.GetFrameTime()
 
-        
+        // Update arrow animation timer (always runs)
+        arrow_timer += dt
+
+        // Tutorial input handling
+        if tutorial_active && rl.IsKeyPressed(.ENTER) {
+            switch tutorial_step {
+            case .Intro1:
+                tutorial_step = .Intro2
+            case .Intro2:
+                tutorial_step = .Intro3
+            case .Intro3:
+                tutorial_step = .ArrowLadder
+            case .ArrowLadder:
+                tutorial_step = .WaitForClimb
+                tutorial_active = false
+            case .ArrowItem:
+                tutorial_step = .RockInfo2
+            case .RockInfo2:
+                tutorial_step = .WaitForPickup
+                tutorial_active = false
+            case .ThrowInfo:
+                tutorial_step = .Complete
+                tutorial_active = false
+            case .WaitForClimb, .WaitForPickup, .Complete:
+                // No action for these states
+            }
+        }
+
         if game_over && rl.IsKeyPressed(.R) {
             noise_meter = 0
             player.x = level.player_spawn.x
@@ -285,7 +361,7 @@ main :: proc() {
         }
 
         // This section sets up movement, gravity, and tile colision
-        if !game_over {
+        if !game_over && !tutorial_active {
         if rl.IsKeyDown(.A) {
             player.x -= PLAYER_SPEED * dt
             player.facing_left = true
@@ -382,6 +458,11 @@ main :: proc() {
                    player.y >= item.y && player.y <= item.y + item.height {
                     item.collected = true
                     player.has_rock = true
+                    // Tutorial trigger: picked up item
+                    if tutorial_step == .WaitForPickup {
+                        tutorial_step = .ThrowInfo
+                        tutorial_active = true
+                    }
                 }
             }
         }
@@ -499,7 +580,13 @@ main :: proc() {
                 game_over = true
             }
         }
-        } // end if !game_over
+
+        // Tutorial trigger: climbed the first ladder (reached top platform area)
+        if tutorial_step == .WaitForClimb && player.y < first_ladder_top + 16 {
+            tutorial_step = .ArrowItem
+            tutorial_active = true
+        }
+        } // end if !game_over && !tutorial_active
 
         // Animation (runs even during game over to keep sprite visible)
         current_anim: ^Animation
@@ -676,6 +763,85 @@ main :: proc() {
         if player.has_rock {
             rl.DrawCircle(130, 16, 6, rl.Color{139, 119, 101, 255})
             rl.DrawText("LMB", 140, 10, 10, rl.WHITE)
+        }
+
+        // Tutorial overlay
+        if tutorial_step != .Complete {
+            // Draw flashing arrow for ladder/item steps
+            if tutorial_step == .ArrowLadder || tutorial_step == .WaitForClimb {
+                // Calculate screen position of first ladder
+                arrow_world_x := first_ladder_x + TILE_SIZE / 2
+                arrow_world_y := first_ladder_top - 20
+                arrow_screen_x := arrow_world_x - camera.target.x + camera.offset.x
+                arrow_screen_y := arrow_world_y - camera.target.y + camera.offset.y
+
+                // Flashing effect using sin wave
+                alpha := u8(150 + 100 * math.sin(arrow_timer * 5.0))
+                arrow_color := rl.Color{255, 255, 0, alpha}
+
+                // Draw downward pointing arrow (triangle)
+                rl.DrawTriangle(
+                    rl.Vector2{arrow_screen_x, arrow_screen_y + 15},      // Bottom point
+                    rl.Vector2{arrow_screen_x - 8, arrow_screen_y},       // Top left
+                    rl.Vector2{arrow_screen_x + 8, arrow_screen_y},       // Top right
+                    arrow_color,
+                )
+            }
+
+            if tutorial_step == .ArrowItem || tutorial_step == .RockInfo2 || tutorial_step == .WaitForPickup {
+                // Calculate screen position of item
+                arrow_world_x := item_pos.x
+                arrow_world_y := item_pos.y - 20
+                arrow_screen_x := arrow_world_x - camera.target.x + camera.offset.x
+                arrow_screen_y := arrow_world_y - camera.target.y + camera.offset.y
+
+                // Flashing effect using sin wave
+                alpha := u8(150 + 100 * math.sin(arrow_timer * 5.0))
+                arrow_color := rl.Color{255, 255, 0, alpha}
+
+                // Draw downward pointing arrow (triangle)
+                rl.DrawTriangle(
+                    rl.Vector2{arrow_screen_x, arrow_screen_y + 15},      // Bottom point
+                    rl.Vector2{arrow_screen_x - 8, arrow_screen_y},       // Top left
+                    rl.Vector2{arrow_screen_x + 8, arrow_screen_y},       // Top right
+                    arrow_color,
+                )
+            }
+
+            // Draw dialogue box when tutorial is active
+            if tutorial_active {
+                // Semi-transparent background
+                rl.DrawRectangle(40, 220, 560, 120, rl.Color{0, 0, 0, 200})
+                rl.DrawRectangleLines(40, 220, 560, 120, rl.WHITE)
+
+                // Get the dialogue text for current step
+                dialogue_text: cstring = ""
+                switch tutorial_step {
+                case .Intro1:
+                    dialogue_text = TUTORIAL_INTRO1
+                case .Intro2:
+                    dialogue_text = TUTORIAL_INTRO2
+                case .Intro3:
+                    dialogue_text = TUTORIAL_INTRO3
+                case .ArrowLadder:
+                    dialogue_text = TUTORIAL_LADDER
+                case .ArrowItem:
+                    dialogue_text = TUTORIAL_ROCK1
+                case .RockInfo2:
+                    dialogue_text = TUTORIAL_ROCK2
+                case .ThrowInfo:
+                    dialogue_text = TUTORIAL_THROW
+                case .WaitForClimb, .WaitForPickup, .Complete:
+                    // No dialogue for these states
+                }
+
+                // Draw dialogue text
+                rl.DrawText(dialogue_text, 55, 235, 15, rl.WHITE)
+
+                // Draw "Press Enter" prompt (flashing)
+                prompt_alpha := u8(150 + 100 * math.sin(arrow_timer * 3.0))
+                rl.DrawText("Press Enter", 270, 315, 15, rl.Color{255, 255, 255, prompt_alpha})
+            }
         }
 
         // Game over screen
