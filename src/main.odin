@@ -135,9 +135,10 @@ Animation :: struct {
 }
 
 Enemy :: struct {
-    x, y:      f32,
-    start_x:   f32,
-    direction: f32,  // 1 = right, -1 = left
+    x, y:        f32,
+    start_x:     f32,
+    direction:   f32,  // 1 = right, -1 = left
+    stun_timer:  f32,  // Seconds remaining stunned (0 = not stunned)
 }
 
 Door :: struct {
@@ -157,6 +158,14 @@ Item :: struct {
     collected:     bool,
 }
 
+Rock :: struct {
+    x, y:       f32,
+    vel_x:      f32,
+    vel_y:      f32,
+    active:     bool,
+    start_x:    f32,  // Track starting position for 40px travel
+}
+
 ENEMY_SPEED :: 30.0
 ENEMY_PATROL_RANGE :: 30.0
 
@@ -168,6 +177,7 @@ Player :: struct {
     facing_left:   bool,
     current_frame: i32,
     frame_timer:   f32,
+    has_rock:      bool,
 }
 
 PLAYER_SPEED  :: 100.0
@@ -219,6 +229,7 @@ main :: proc() {
     // This section details the game logic
     noise_meter: f32 = 0
     game_over := false
+    rock := Rock{}  // Thrown rock projectile
 
     // Camera setup - follows the player
     camera := rl.Camera2D{
@@ -241,9 +252,13 @@ main :: proc() {
             player.vel_y = 0
             player.grounded = true
             player.state = .Idle
+            player.has_rock = false
+            // Reset rock projectile
+            rock = Rock{}
             // Reset enemies to starting positions
             for &enemy in level.enemies {
                 enemy.x = enemy.start_x
+                enemy.stun_timer = 0
             }
             // Reset traps
             for &trap in level.traps {
@@ -360,6 +375,75 @@ main :: proc() {
             }
         }
 
+        // Item pickup (rocks) - player gains ability to throw
+        for &item in level.items {
+            if !item.collected && !player.has_rock {
+                if player.x >= item.x && player.x <= item.x + item.width &&
+                   player.y >= item.y && player.y <= item.y + item.height {
+                    item.collected = true
+                    player.has_rock = true
+                }
+            }
+        }
+
+        // Rock throwing - left click to throw
+        if player.has_rock && !rock.active && rl.IsMouseButtonPressed(.LEFT) {
+            rock.active = true
+            rock.x = player.x
+            rock.y = player.y
+            rock.start_x = player.x
+            // Throw in direction player is facing with parabolic arc
+            rock.vel_x = 80.0 if !player.facing_left else -80.0
+            rock.vel_y = -60.0  // Initial upward velocity for arc
+            player.has_rock = false
+            noise_meter += 10  // +10 noise when thrown
+        }
+
+        // Update rock projectile
+        if rock.active {
+            rock.x += rock.vel_x * dt
+            rock.vel_y += GRAVITY * 0.5 * dt  // Lighter gravity for arc
+            rock.y += rock.vel_y * dt
+
+            // Check if rock has traveled 320px horizontally
+            if abs(rock.x - rock.start_x) >= 320.0 {
+                // Rock falls straight down after 320px travel
+                rock.vel_x = 0
+            }
+
+            // Check collision with enemies (stun them)
+            hit_enemy := false
+            for &enemy in level.enemies {
+                dx := rock.x - enemy.x
+                dy := rock.y - enemy.y
+                distance := rl.Vector2Length(rl.Vector2{dx, dy})
+                if distance <= 10.0 {  // Hit radius
+                    enemy.stun_timer = 5.0  // Stun for 5 seconds
+                    rock.active = false
+                    hit_enemy = true
+                    break
+                }
+            }
+
+            // Check collision with ground (miss penalty)
+            if !hit_enemy {
+                for ground in level.grounds {
+                    if rock.x >= ground.x && rock.x <= ground.x + ground.width &&
+                       rock.y >= ground.y && rock.y <= ground.y + ground.height {
+                        rock.active = false
+                        noise_meter += 60  // +60 noise for missing
+                        break
+                    }
+                }
+            }
+
+            // Deactivate if rock falls below map
+            if rock.y > level.height + 50 {
+                rock.active = false
+                noise_meter += 60  // Missed - fell off map
+            }
+        }
+
         // This sections sets up animation based on player state
         prev_state := player.state
         if climbing {
@@ -394,6 +478,12 @@ main :: proc() {
         // Enemy patrol movement and collision detection
         visibility_radius := 20.0 + noise_meter
         for &enemy in level.enemies {
+            // Decrement stun timer
+            if enemy.stun_timer > 0 {
+                enemy.stun_timer -= dt
+                continue  // Skip movement and detection while stunned
+            }
+
             enemy.x += enemy.direction * ENEMY_SPEED * dt
             if enemy.x <= enemy.start_x - ENEMY_PATROL_RANGE {
                 enemy.direction = 1
@@ -534,11 +624,24 @@ main :: proc() {
         // Draw enemies
         vis_radius := 20.0 + noise_meter
         for enemy in level.enemies {
-            // Draw visibility radius (circle)
-            rl.DrawCircleLines(i32(enemy.x), i32(enemy.y), vis_radius, rl.Color{255, 100, 100, 150})
-            rl.DrawCircle(i32(enemy.x), i32(enemy.y), vis_radius, rl.Color{255, 0, 0, 30})
-            // Draw enemy (16x16 ellipse placeholder)
-            rl.DrawEllipse(i32(enemy.x), i32(enemy.y), 8, 8, rl.RED)
+            is_stunned := enemy.stun_timer > 0
+            if !is_stunned {
+                // Draw visibility radius (circle) only when not stunned
+                rl.DrawCircleLines(i32(enemy.x), i32(enemy.y), vis_radius, rl.Color{255, 100, 100, 150})
+                rl.DrawCircle(i32(enemy.x), i32(enemy.y), vis_radius, rl.Color{255, 0, 0, 30})
+            }
+            // Draw enemy (16x16 ellipse placeholder) - blue when stunned
+            enemy_color := rl.BLUE if is_stunned else rl.RED
+            rl.DrawEllipse(i32(enemy.x), i32(enemy.y), 8, 8, enemy_color)
+            // Draw stun indicator (stars above head)
+            if is_stunned {
+                rl.DrawText("*", i32(enemy.x) - 4, i32(enemy.y) - 16, 10, rl.YELLOW)
+            }
+        }
+
+        // Draw rock projectile
+        if rock.active {
+            rl.DrawCircle(i32(rock.x), i32(rock.y), 4, rl.Color{139, 119, 101, 255})  // Brown rock
         }
 
         // End camera mode before drawing UI
@@ -559,6 +662,12 @@ main :: proc() {
         rl.DrawRectangleLines(METER_X, METER_Y, METER_WIDTH, METER_HEIGHT, rl.WHITE)
         // Label
         rl.DrawText("NOISE", METER_X, METER_Y + METER_HEIGHT + 2, 10, rl.WHITE)
+
+        // Rock indicator
+        if player.has_rock {
+            rl.DrawCircle(130, 16, 6, rl.Color{139, 119, 101, 255})
+            rl.DrawText("LMB", 140, 10, 10, rl.WHITE)
+        }
 
         // Game over screen
         if game_over {
