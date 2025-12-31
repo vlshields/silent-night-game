@@ -585,6 +585,21 @@ main :: proc() {
             }
         }
 
+        // Trap collision (solid like ground)
+        for trap in level.traps {
+            trap_top := trap.y - 8
+            if player.x >= trap.x && player.x <= trap.x + trap.width {
+                if player.y >= trap_top && player.y <= trap_top + 16 && player.vel_y >= 0 {
+                    player.y = trap_top
+                    player.vel_y = 0
+                    if was_airborne && !on_ladder {
+                        noise_meter += 10  // Landing adds noise
+                    }
+                    player.grounded = true
+                }
+            }
+        }
+
         // Check if player is still grounded (for walking off platforms)
         if player.grounded && !on_ladder {
             still_on_ground := false
@@ -594,6 +609,17 @@ main :: proc() {
                    player.y >= ground_top - 1 && player.y <= ground_top + 1 {
                     still_on_ground = true
                     break
+                }
+            }
+            // Also check traps for grounding
+            if !still_on_ground {
+                for trap in level.traps {
+                    trap_top := trap.y - 8
+                    if player.x >= trap.x && player.x <= trap.x + trap.width &&
+                       player.y >= trap_top - 1 && player.y <= trap_top + 1 {
+                        still_on_ground = true
+                        break
+                    }
                 }
             }
             if !still_on_ground {
