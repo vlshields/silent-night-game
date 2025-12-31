@@ -782,8 +782,8 @@ main :: proc() {
                 // Draw downward pointing arrow (triangle)
                 rl.DrawTriangle(
                     rl.Vector2{arrow_screen_x, arrow_screen_y + 15},      // Bottom point
-                    rl.Vector2{arrow_screen_x - 8, arrow_screen_y},       // Top left
                     rl.Vector2{arrow_screen_x + 8, arrow_screen_y},       // Top right
+                    rl.Vector2{arrow_screen_x - 8, arrow_screen_y},       // Top left
                     arrow_color,
                 )
             }
@@ -802,8 +802,8 @@ main :: proc() {
                 // Draw downward pointing arrow (triangle)
                 rl.DrawTriangle(
                     rl.Vector2{arrow_screen_x, arrow_screen_y + 15},      // Bottom point
-                    rl.Vector2{arrow_screen_x - 8, arrow_screen_y},       // Top left
                     rl.Vector2{arrow_screen_x + 8, arrow_screen_y},       // Top right
+                    rl.Vector2{arrow_screen_x - 8, arrow_screen_y},       // Top left
                     arrow_color,
                 )
             }
