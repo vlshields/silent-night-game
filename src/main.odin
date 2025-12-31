@@ -14,6 +14,8 @@ Level :: struct {
     traps:        [dynamic]Trap,
     items:        [dynamic]Item,
     player_spawn: rl.Vector2,
+    width:        f32,
+    height:       f32,
 }
 
 load_level :: proc(path: string) -> Level {
@@ -37,8 +39,12 @@ load_level :: proc(path: string) -> Level {
     lines := strings.split_lines(content)
     defer delete(lines)
 
+    max_cols := 0
+    row_count := 0
     for line, row in lines {
         if len(line) == 0 do continue
+        row_count = row + 1
+        if len(line) > max_cols do max_cols = len(line)
 
         for char, col in line {
             x := f32(col * TILE_SIZE)
@@ -89,6 +95,9 @@ load_level :: proc(path: string) -> Level {
             }
         }
     }
+
+    level.width = f32(max_cols * TILE_SIZE)
+    level.height = f32(row_count * TILE_SIZE)
 
     return level
 }
@@ -210,6 +219,14 @@ main :: proc() {
     // This section details the game logic
     noise_meter: f32 = 0
     game_over := false
+
+    // Camera setup - follows the player
+    camera := rl.Camera2D{
+        target = {player.x, player.y},
+        offset = {320, 180},  // Center of 640x360 window
+        rotation = 0,
+        zoom = 1,
+    }
 
     rl.SetTargetFPS(60)
 
@@ -415,9 +432,16 @@ main :: proc() {
             }
         }
 
+        // Update camera to follow player, clamped to map bounds
+        camera.target.x = clamp(player.x, camera.offset.x, level.width - camera.offset.x)
+        camera.target.y = clamp(player.y, camera.offset.y, level.height - camera.offset.y)
+
         // And here we do the drawing
         rl.BeginDrawing()
         rl.ClearBackground(rl.BLACK)
+
+        // Begin camera mode for world drawing
+        rl.BeginMode2D(camera)
 
         // Draw all grounds
         for ground in level.grounds {
@@ -516,6 +540,9 @@ main :: proc() {
             // Draw enemy (16x16 ellipse placeholder)
             rl.DrawEllipse(i32(enemy.x), i32(enemy.y), 8, 8, rl.RED)
         }
+
+        // End camera mode before drawing UI
+        rl.EndMode2D()
 
         // Draw noise meter
         METER_X      :: 10
