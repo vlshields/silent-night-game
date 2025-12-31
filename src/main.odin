@@ -1,291 +1,25 @@
 package main
 
 import rl "vendor:raylib"
-import "core:os"
-import "core:strings"
 import "core:math"
-
-TILE_SIZE :: 16
-
-Level :: struct {
-    grounds:      [dynamic]Ground,
-    ladders:      [dynamic]Ladder,
-    enemies:      [dynamic]Enemy,
-    doors:        [dynamic]Door,
-    traps:        [dynamic]Trap,
-    items:        [dynamic]Item,
-    moon_tiles:   [dynamic]MoonTile,
-    stars:        [dynamic]Star,
-    player_spawn: rl.Vector2,
-    width:        f32,
-    height:       f32,
-}
-
-load_level :: proc(path: string) -> Level {
-    level := Level{
-        grounds      = make([dynamic]Ground),
-        ladders      = make([dynamic]Ladder),
-        enemies      = make([dynamic]Enemy),
-        doors        = make([dynamic]Door),
-        traps        = make([dynamic]Trap),
-        items        = make([dynamic]Item),
-        moon_tiles   = make([dynamic]MoonTile),
-        stars        = make([dynamic]Star),
-        player_spawn = {100, 317}, // default
-    }
-
-    // Track moon grid origin to calculate relative grid positions
-    moon_origin_x: i32 = -1
-    moon_origin_y: i32 = -1
-
-    data, ok := os.read_entire_file(path)
-    if !ok {
-        return level
-    }
-    defer delete(data)
-
-    content := string(data)
-    lines := strings.split_lines(content)
-    defer delete(lines)
-
-    max_cols := 0
-    row_count := 0
-    for line, row in lines {
-        if len(line) == 0 do continue
-        row_count = row + 1
-        if len(line) > max_cols do max_cols = len(line)
-
-        for char, col in line {
-            x := f32(col * TILE_SIZE)
-            y := f32(row * TILE_SIZE)
-
-            switch char {
-            case '#':
-                // Check if we can extend the previous ground (horizontal merge)
-                merged := false
-                if len(level.grounds) > 0 {
-                    last := &level.grounds[len(level.grounds) - 1]
-                    if last.y == y && last.x + last.width == x {
-                        last.width += TILE_SIZE
-                        merged = true
-                    }
-                }
-                if !merged {
-                    append(&level.grounds, Ground{x, y, TILE_SIZE, TILE_SIZE})
-                }
-            case 'L':
-                // Check if we can extend the previous ladder (vertical merge)
-                merged := false
-                for &ladder in level.ladders {
-                    if ladder.x == x && ladder.y + ladder.height == y {
-                        ladder.height += TILE_SIZE
-                        merged = true
-                        break
-                    }
-                }
-                if !merged {
-                    append(&level.ladders, Ladder{x, y, TILE_SIZE, TILE_SIZE})
-                }
-            case 'P':
-                level.player_spawn = {x + TILE_SIZE / 2, y + TILE_SIZE / 2}
-            case 'E':
-                append(&level.enemies, Enemy{
-                    x         = x + TILE_SIZE / 2,
-                    y         = y + TILE_SIZE / 2,
-                    start_x   = x + TILE_SIZE / 2,
-                    direction = -1,
-                })
-            case 'D':
-                append(&level.doors, Door{x, y, TILE_SIZE, TILE_SIZE})
-            case 'T':
-                append(&level.traps, Trap{x, y, TILE_SIZE, TILE_SIZE, false})
-            case 'I':
-                append(&level.items, Item{x, y, TILE_SIZE, TILE_SIZE, false})
-            case 'M':
-                // Moon tile - track origin to calculate grid position
-                if moon_origin_x < 0 || col < int(moon_origin_x) {
-                    moon_origin_x = i32(col)
-                }
-                if moon_origin_y < 0 || row < int(moon_origin_y) {
-                    moon_origin_y = i32(row)
-                }
-                append(&level.moon_tiles, MoonTile{
-                    x      = x,
-                    y      = y,
-                    grid_x = i32(col),  // Temporary, will recalculate
-                    grid_y = i32(row),  // Temporary, will recalculate
-                })
-            case 'S':
-                append(&level.stars, Star{x, y})
-            }
-        }
-    }
-
-    level.width = f32(max_cols * TILE_SIZE)
-    level.height = f32(row_count * TILE_SIZE)
-
-    // Recalculate moon grid positions relative to origin
-    for &moon in level.moon_tiles {
-        moon.grid_x = moon.grid_x - moon_origin_x
-        moon.grid_y = moon.grid_y - moon_origin_y
-    }
-
-    return level
-}
-
-unload_level :: proc(level: ^Level) {
-    delete(level.grounds)
-    delete(level.ladders)
-    delete(level.enemies)
-    delete(level.doors)
-    delete(level.traps)
-    delete(level.items)
-    delete(level.moon_tiles)
-    delete(level.stars)
-}
-
-Ground :: struct {
-    x, y:          f32,
-    width, height: f32,
-}
-
-PlayerState :: enum {
-    Idle,
-    Moving,
-    Jumping,
-    Climbing,
-}
-
-Ladder :: struct {
-    x, y:          f32,
-    width, height: f32,
-}
-
-Animation :: struct {
-    texture:     rl.Texture2D,
-    frame_count: i32,
-    frame_time:  f32,
-}
-
-Enemy :: struct {
-    x, y:          f32,
-    start_x:       f32,
-    direction:     f32,  // 1 = right, -1 = left
-    stun_timer:    f32,  // Seconds remaining stunned (0 = not stunned)
-    current_frame: i32,
-    frame_timer:   f32,
-}
-
-Door :: struct {
-    x, y:          f32,
-    width, height: f32,
-}
-
-Trap :: struct {
-    x, y:          f32,
-    width, height: f32,
-    triggered:     bool,
-}
-
-Item :: struct {
-    x, y:          f32,
-    width, height: f32,
-    collected:     bool,
-}
-
-// Background elements for parallax scrolling
-MoonTile :: struct {
-    x, y:       f32,  // World position
-    grid_x:     i32,  // Grid position within 4x4 moon (0-3)
-    grid_y:     i32,  // Grid position within 4x4 moon (0-3)
-}
-
-Star :: struct {
-    x, y:       f32,  // World position
-}
-
-Rock :: struct {
-    x, y:       f32,
-    vel_x:      f32,
-    vel_y:      f32,
-    active:     bool,
-    start_x:    f32,  // Track starting position for 40px travel
-}
-
-TutorialStep :: enum {
-    Intro1,         // Movement and noise meter
-    Intro2,         // Guard detection
-    Intro3,         // Sensory regions grow
-    Intro4,         // Standing still depletes noise
-    ArrowLadder,    // Flashing arrow + climb dialogue
-    WaitForClimb,   // Player must climb
-    ArrowTrap,      // Flashing arrow + trap warning
-    WaitForTrapPass,// Player must pass the trap
-    ArrowItem,      // Flashing arrow + rock dialogue
-    RockInfo2,      // Miss penalty dialogue
-    WaitForPickup,  // Player must pick up
-    ThrowInfo,      // Left click dialogue
-    Complete,       // Tutorial done
-}
-
-// Tutorial dialogue strings
-TUTORIAL_INTRO1 :: "Shhhh, be quiet! Each step you take with A or D will\nincrease your Noise meter. So will jumping (Spacebar)\nand landing on the ground."
-
-TUTORIAL_INTRO2 :: "If your Noise meter becomes full, you will be captured!\nIf any patrolling guard sees or hears you, you will be\ncaptured. Stay out of their sensory region shown in red!"
-
-TUTORIAL_INTRO3 :: "The guards' sensory regions will grow as your\nNoise meter grows too."
-
-TUTORIAL_INTRO4 :: "Standing still will deplete your noise meter and\nthe guards' sensory region. Be patient!"
-
-TUTORIAL_LADDER :: "Head up this ladder with W.\nBut be careful, climbing makes noise too!"
-
-TUTORIAL_TRAP :: "Be careful of trash or objects on the ground,\nthey can make a lot of noise and get you caught!"
-
-TUTORIAL_ROCK1 :: "If you find a rock, you can pick it up and throw it.\nIf it hits a guard, they will be stunned for 5 seconds."
-
-TUTORIAL_ROCK2 :: "But if you miss, you will make a lot of noise!\nMake sure you are close enough to hit the guard!"
-
-TUTORIAL_THROW :: "Left click in the direction of the guard\nto throw the rock at them."
-
-ENEMY_SPEED :: 30.0
-ENEMY_PATROL_RANGE :: 30.0
-
-Player :: struct {
-    x, y:          f32,
-    vel_y:         f32,
-    grounded:      bool,
-    state:         PlayerState,
-    facing_left:   bool,
-    current_frame: i32,
-    frame_timer:   f32,
-    has_rock:      bool,
-}
-
-PLAYER_SPEED  :: 100.0
-JUMP_FORCE    :: 400.0
-GRAVITY       :: 800.0
-FRAME_SIZE    :: 16
 
 GAME_WIDTH  :: 640
 GAME_HEIGHT :: 360
 
 main :: proc() {
-    // Get monitor resolution for fullscreen
     rl.SetConfigFlags({.FULLSCREEN_MODE})
-    rl.InitWindow(0, 0, "Silent Night")  // 0,0 uses monitor resolution
+    rl.InitWindow(0, 0, "Silent Night")
     defer rl.CloseWindow()
 
     screen_width := rl.GetScreenWidth()
     screen_height := rl.GetScreenHeight()
 
-    // Create render texture at game resolution for pixel-perfect scaling
     target := rl.LoadRenderTexture(GAME_WIDTH, GAME_HEIGHT)
     defer rl.UnloadRenderTexture(target)
 
-    // Calculate scale to fit screen while maintaining aspect ratio
     scale := min(f32(screen_width) / GAME_WIDTH, f32(screen_height) / GAME_HEIGHT)
 
-    // Here we configure the animations
+    // Load animations
     idle_anim := Animation{
         texture     = rl.LoadTexture("assets/sprites/player_idle-sheet.png"),
         frame_count = 6,
@@ -307,7 +41,6 @@ main :: proc() {
     }
     defer rl.UnloadTexture(jump_anim.texture)
 
-    // Enemy animations
     enemy_move_anim := Animation{
         texture     = rl.LoadTexture("assets/sprites/enemy_movement.png"),
         frame_count = 7,
@@ -322,7 +55,7 @@ main :: proc() {
     }
     defer rl.UnloadTexture(enemy_stunned_anim.texture)
 
-    // Load item/object textures
+    // Load textures
     rock_texture := rl.LoadTexture("assets/sprites/Item_Rock_Pickup.png")
     defer rl.UnloadTexture(rock_texture)
 
@@ -332,14 +65,13 @@ main :: proc() {
     door_texture := rl.LoadTexture("assets/sprites/Level_door_exit.png")
     defer rl.UnloadTexture(door_texture)
 
-    // Background textures for parallax
     moon_texture := rl.LoadTexture("assets/sprites/Evil_moon_bg.png")
     defer rl.UnloadTexture(moon_texture)
 
     star_texture := rl.LoadTexture("assets/sprites/star_bg.png")
     defer rl.UnloadTexture(star_texture)
 
-    // Load level from file
+    // Load level
     level := load_level("assets/maps/level1.txt")
     defer unload_level(&level)
 
@@ -354,23 +86,23 @@ main :: proc() {
         frame_timer   = 0,
     }
 
-    // This section details the game logic
+    // Game state
     noise_meter: f32 = 0
     game_over := false
-    level_complete := false  // Flag for level transition
+    level_complete := false
     current_level := 1
-    rock := Rock{}  // Thrown rock projectile
+    rock := Rock{}
 
     // Tutorial state
     tutorial_step := TutorialStep.Intro1
-    tutorial_active := true  // Pauses game when true
-    arrow_timer: f32 = 0     // For flashing animation
+    tutorial_active := true
+    arrow_timer: f32 = 0
     first_ladder_x: f32 = 0
     first_ladder_top: f32 = 999999
     item_pos := rl.Vector2{0, 0}
     trap_pos := rl.Vector2{0, 0}
 
-    // Find first ladder position and item position for tutorial arrows
+    // Find tutorial positions
     for ladder in level.ladders {
         if first_ladder_x == 0 || ladder.x < first_ladder_x {
             first_ladder_x = ladder.x
@@ -379,17 +111,17 @@ main :: proc() {
     }
     for item in level.items {
         item_pos = {item.x + item.width / 2, item.y}
-        break  // Just get first item position
+        break
     }
     for trap in level.traps {
         trap_pos = {trap.x + trap.width / 2, trap.y}
-        break  // Just get first trap position
+        break
     }
 
-    // Camera setup - follows the player
+    // Camera setup
     camera := rl.Camera2D{
         target = {player.x, player.y},
-        offset = {GAME_WIDTH / 2, GAME_HEIGHT / 2},  // Center of game resolution
+        offset = {GAME_WIDTH / 2, GAME_HEIGHT / 2},
         rotation = 0,
         zoom = 1,
     }
@@ -398,8 +130,6 @@ main :: proc() {
 
     for !rl.WindowShouldClose() {
         dt := rl.GetFrameTime()
-
-        // Update arrow animation timer (always runs)
         arrow_timer += dt
 
         // Tutorial input handling
@@ -428,10 +158,11 @@ main :: proc() {
                 tutorial_step = .Complete
                 tutorial_active = false
             case .WaitForClimb, .WaitForTrapPass, .WaitForPickup, .Complete:
-                // No action for these states
+                // No action
             }
         }
 
+        // Restart handling
         if game_over && rl.IsKeyPressed(.R) {
             noise_meter = 0
             player.x = level.player_spawn.x
@@ -440,20 +171,16 @@ main :: proc() {
             player.grounded = true
             player.state = .Idle
             player.has_rock = false
-            // Reset rock projectile
             rock = Rock{}
-            // Reset enemies to starting positions
             for &enemy in level.enemies {
                 enemy.x = enemy.start_x
                 enemy.stun_timer = 0
                 enemy.current_frame = 0
                 enemy.frame_timer = 0
             }
-            // Reset traps
             for &trap in level.traps {
                 trap.triggered = false
             }
-            // Reset items
             for &item in level.items {
                 item.collected = false
             }
@@ -464,23 +191,17 @@ main :: proc() {
         if level_complete {
             current_level += 1
             level_complete = false
-
-            // Unload current level and load next
             unload_level(&level)
 
             if current_level == 2 {
                 level = load_level("assets/maps/level2.txt")
-                // Disable tutorial for level 2
                 tutorial_step = .Complete
                 tutorial_active = false
             } else {
-                // Win condition - completed all levels
-                // For now, just reload level 1 (could show win screen instead)
                 current_level = 1
                 level = load_level("assets/maps/level1.txt")
             }
 
-            // Reset player state for new level
             player.x = level.player_spawn.x
             player.y = level.player_spawn.y
             player.vel_y = 0
@@ -490,7 +211,6 @@ main :: proc() {
             rock = Rock{}
             noise_meter = 0
 
-            // Update tutorial arrow positions for new level
             first_ladder_x = 0
             first_ladder_top = 999999
             for ladder in level.ladders {
@@ -509,7 +229,6 @@ main :: proc() {
             }
         }
 
-        // Track if moving this frame
         moving := false
         climbing := false
 
@@ -522,292 +241,273 @@ main :: proc() {
             }
         }
 
-        // This section sets up movement, gravity, and tile colision
+        // Game logic
         if !game_over && !tutorial_active {
-        if rl.IsKeyDown(.A) {
-            player.x -= PLAYER_SPEED * dt
-            player.facing_left = true
-            moving = true
-        }
-        if rl.IsKeyDown(.D) {
-            player.x += PLAYER_SPEED * dt
-            player.facing_left = false
-            moving = true
-        }
-
-        // Climbing controls (W/S)
-        if on_ladder {
-            if rl.IsKeyDown(.W) {
-                player.y -= PLAYER_SPEED * 0.5 * dt
-                player.vel_y = 0
-                climbing = true
+            if rl.IsKeyDown(.A) {
+                player.x -= PLAYER_SPEED * dt
+                player.facing_left = true
+                moving = true
             }
-            if rl.IsKeyDown(.S) {
-                player.y += PLAYER_SPEED * 0.5 * dt
-                player.vel_y = 0
-                climbing = true
+            if rl.IsKeyDown(.D) {
+                player.x += PLAYER_SPEED * dt
+                player.facing_left = false
+                moving = true
             }
-            // Add noise when climbing (8 per second)
-            if climbing {
-                noise_meter += 8.0 * dt
-            }
-        }
 
-        if rl.IsKeyPressed(.SPACE) && player.grounded && !on_ladder {
-            player.vel_y = -JUMP_FORCE
-            player.grounded = false
-            noise_meter += 20  // Jumping adds noise
-        }
-
-        was_airborne := !player.grounded
-
-        // Apply gravity only when not on ladder
-        if !player.grounded && !on_ladder {
-            player.vel_y += GRAVITY * dt
-            player.y += player.vel_y * dt
-        } else if on_ladder && !climbing {
-            // Hold position on ladder when not actively climbing
-            player.vel_y = 0
-        }
-
-        // Ground/platform collision (only when falling)
-        for ground in level.grounds {
-            ground_top := ground.y - 8
-            if player.x >= ground.x && player.x <= ground.x + ground.width {
-                if player.y >= ground_top && player.y <= ground_top + 16 && player.vel_y >= 0 {
-                    player.y = ground_top
+            if on_ladder {
+                if rl.IsKeyDown(.W) {
+                    player.y -= PLAYER_SPEED * 0.5 * dt
                     player.vel_y = 0
-                    if was_airborne && !on_ladder {
-                        noise_meter += 10  // Landing adds noise
-                    }
-                    player.grounded = true
+                    climbing = true
+                }
+                if rl.IsKeyDown(.S) {
+                    player.y += PLAYER_SPEED * 0.5 * dt
+                    player.vel_y = 0
+                    climbing = true
+                }
+                if climbing {
+                    noise_meter += 8.0 * dt
                 }
             }
-        }
 
-        // Trap collision (solid like ground)
-        for trap in level.traps {
-            trap_top := trap.y - 8
-            if player.x >= trap.x && player.x <= trap.x + trap.width {
-                if player.y >= trap_top && player.y <= trap_top + 16 && player.vel_y >= 0 {
-                    player.y = trap_top
-                    player.vel_y = 0
-                    if was_airborne && !on_ladder {
-                        noise_meter += 10  // Landing adds noise
-                    }
-                    player.grounded = true
-                }
+            if rl.IsKeyPressed(.SPACE) && player.grounded && !on_ladder {
+                player.vel_y = -JUMP_FORCE
+                player.grounded = false
+                noise_meter += 20
             }
-        }
 
-        // Check if player is still grounded (for walking off platforms)
-        if player.grounded && !on_ladder {
-            still_on_ground := false
+            was_airborne := !player.grounded
+
+            if !player.grounded && !on_ladder {
+                player.vel_y += GRAVITY * dt
+                player.y += player.vel_y * dt
+            } else if on_ladder && !climbing {
+                player.vel_y = 0
+            }
+
+            // Ground collision
             for ground in level.grounds {
                 ground_top := ground.y - 8
-                if player.x >= ground.x && player.x <= ground.x + ground.width &&
-                   player.y >= ground_top - 1 && player.y <= ground_top + 1 {
-                    still_on_ground = true
-                    break
+                if player.x >= ground.x && player.x <= ground.x + ground.width {
+                    if player.y >= ground_top && player.y <= ground_top + 16 && player.vel_y >= 0 {
+                        player.y = ground_top
+                        player.vel_y = 0
+                        if was_airborne && !on_ladder {
+                            noise_meter += 10
+                        }
+                        player.grounded = true
+                    }
                 }
             }
-            // Also check traps for grounding
-            if !still_on_ground {
-                for trap in level.traps {
-                    trap_top := trap.y - 8
-                    if player.x >= trap.x && player.x <= trap.x + trap.width &&
-                       player.y >= trap_top - 1 && player.y <= trap_top + 1 {
+
+            // Trap collision (solid)
+            for trap in level.traps {
+                trap_top := trap.y - 8
+                if player.x >= trap.x && player.x <= trap.x + trap.width {
+                    if player.y >= trap_top && player.y <= trap_top + 16 && player.vel_y >= 0 {
+                        player.y = trap_top
+                        player.vel_y = 0
+                        if was_airborne && !on_ladder {
+                            noise_meter += 10
+                        }
+                        player.grounded = true
+                    }
+                }
+            }
+
+            // Check still grounded
+            if player.grounded && !on_ladder {
+                still_on_ground := false
+                for ground in level.grounds {
+                    ground_top := ground.y - 8
+                    if player.x >= ground.x && player.x <= ground.x + ground.width &&
+                       player.y >= ground_top - 1 && player.y <= ground_top + 1 {
                         still_on_ground = true
                         break
                     }
                 }
-            }
-            if !still_on_ground {
-                player.grounded = false
-            }
-        }
-
-        // Trap collision - adds +40 noise when stepped on (once per trap)
-        for &trap in level.traps {
-            if !trap.triggered {
-                trap_top := trap.y - 8
-                if player.x >= trap.x && player.x <= trap.x + trap.width &&
-                   player.y >= trap_top && player.y <= trap_top + 8 {
-                    trap.triggered = true
-                    noise_meter += 40
+                if !still_on_ground {
+                    for trap in level.traps {
+                        trap_top := trap.y - 8
+                        if player.x >= trap.x && player.x <= trap.x + trap.width &&
+                           player.y >= trap_top - 1 && player.y <= trap_top + 1 {
+                            still_on_ground = true
+                            break
+                        }
+                    }
+                }
+                if !still_on_ground {
+                    player.grounded = false
                 }
             }
-        }
 
-        // Item pickup (rocks) - player gains ability to throw
-        for &item in level.items {
-            if !item.collected && !player.has_rock {
-                if player.x >= item.x && player.x <= item.x + item.width &&
-                   player.y >= item.y && player.y <= item.y + item.height {
-                    item.collected = true
-                    player.has_rock = true
-                    // Tutorial trigger: picked up item
-                    if tutorial_step == .WaitForPickup {
-                        tutorial_step = .ThrowInfo
-                        tutorial_active = true
+            // Trap trigger
+            for &trap in level.traps {
+                if !trap.triggered {
+                    trap_top := trap.y - 8
+                    if player.x >= trap.x && player.x <= trap.x + trap.width &&
+                       player.y >= trap_top && player.y <= trap_top + 8 {
+                        trap.triggered = true
+                        noise_meter += 40
                     }
                 }
             }
-        }
 
-        // Door collision - level transition
-        for door in level.doors {
-            if player.x >= door.x && player.x <= door.x + door.width &&
-               player.y >= door.y && player.y <= door.y + door.height + 8 {
-                level_complete = true
-                break
-            }
-        }
-
-        // Rock throwing - left click to throw
-        if player.has_rock && !rock.active && rl.IsMouseButtonPressed(.LEFT) {
-            rock.active = true
-            rock.x = player.x
-            rock.y = player.y
-            rock.start_x = player.x
-            // Throw in direction player is facing - travels straight for 120px then drops
-            rock.vel_x = 160.0 if !player.facing_left else -160.0
-            rock.vel_y = 0  // No vertical velocity until rock drops
-            player.has_rock = false
-            noise_meter += 10  // +10 noise when thrown
-        }
-
-        // Update rock projectile
-        if rock.active {
-            rock.x += rock.vel_x * dt
-
-            // Check if rock has traveled 120px horizontally
-            if abs(rock.x - rock.start_x) >= 120.0 {
-                // Rock falls straight down after 120px travel
-                rock.vel_x = 0
-                rock.vel_y += GRAVITY * 0.5 * dt  // Apply gravity only after 120px
-                rock.y += rock.vel_y * dt
+            // Item pickup
+            for &item in level.items {
+                if !item.collected && !player.has_rock {
+                    if player.x >= item.x && player.x <= item.x + item.width &&
+                       player.y >= item.y && player.y <= item.y + item.height {
+                        item.collected = true
+                        player.has_rock = true
+                        if tutorial_step == .WaitForPickup {
+                            tutorial_step = .ThrowInfo
+                            tutorial_active = true
+                        }
+                    }
+                }
             }
 
-            // Check collision with enemies (stun them)
-            hit_enemy := false
-            for &enemy in level.enemies {
-                dx := rock.x - enemy.x
-                dy := rock.y - enemy.y
-                distance := rl.Vector2Length(rl.Vector2{dx, dy})
-                if distance <= 10.0 {  // Hit radius
-                    enemy.stun_timer = 5.0  // Stun for 5 seconds
-                    enemy.current_frame = 0  // Reset animation for clean transition
-                    enemy.frame_timer = 0
-                    rock.active = false
-                    hit_enemy = true
+            // Door collision
+            for door in level.doors {
+                if player.x >= door.x && player.x <= door.x + door.width &&
+                   player.y >= door.y && player.y <= door.y + door.height + 8 {
+                    level_complete = true
                     break
                 }
             }
 
-            // Check collision with ground (miss penalty)
-            if !hit_enemy {
-                for ground in level.grounds {
-                    if rock.x >= ground.x && rock.x <= ground.x + ground.width &&
-                       rock.y >= ground.y && rock.y <= ground.y + ground.height {
+            // Rock throwing
+            if player.has_rock && !rock.active && rl.IsMouseButtonPressed(.LEFT) {
+                rock.active = true
+                rock.x = player.x
+                rock.y = player.y
+                rock.start_x = player.x
+                rock.vel_x = 160.0 if !player.facing_left else -160.0
+                rock.vel_y = 0
+                player.has_rock = false
+                noise_meter += 5
+            }
+
+            // Update rock
+            if rock.active {
+                rock.x += rock.vel_x * dt
+
+                if abs(rock.x - rock.start_x) >= 120.0 {
+                    rock.vel_x = 0
+                    rock.vel_y += GRAVITY * 0.5 * dt
+                    rock.y += rock.vel_y * dt
+                }
+
+                hit_enemy := false
+                for &enemy in level.enemies {
+                    dx := rock.x - enemy.x
+                    dy := rock.y - enemy.y
+                    distance := rl.Vector2Length(rl.Vector2{dx, dy})
+                    if distance <= 10.0 {
+                        enemy.stun_timer = 5.0
+                        enemy.current_frame = 0
+                        enemy.frame_timer = 0
                         rock.active = false
-                        noise_meter += 60  // +60 noise for missing
+                        hit_enemy = true
                         break
                     }
                 }
-            }
 
-            // Deactivate if rock falls below map
-            if rock.y > level.height + 50 {
-                rock.active = false
-                noise_meter += 60  // Missed - fell off map
-            }
-        }
+                if !hit_enemy {
+                    for ground in level.grounds {
+                        if rock.x >= ground.x && rock.x <= ground.x + ground.width &&
+                           rock.y >= ground.y && rock.y <= ground.y + ground.height {
+                            rock.active = false
+                            noise_meter += 60
+                            break
+                        }
+                    }
+                }
 
-        // This sections sets up animation based on player state
-        prev_state := player.state
-        if climbing {
-            player.state = .Climbing
-        } else if !player.grounded {
-            player.state = .Jumping
-        } else if moving {
-            player.state = .Moving
-        } else {
-            player.state = .Idle
-        }
-
-        // Reset animation frame when state changes
-        if player.state != prev_state {
-            player.current_frame = 0
-            player.frame_timer = 0
-        }
-
-        if moving {
-            // Increase by +1 every 0.25 seconds (+4 per second)
-            noise_meter += 4.0 * dt
-        } else {
-            // Decrease by 2 per second (half of movement rate)
-            noise_meter -= 3.0 * dt
-        }
-        noise_meter = clamp(noise_meter, 0, 100)
-
-        if noise_meter >= 100 {
-            game_over = true
-        }
-
-        // Enemy patrol movement and collision detection
-        visibility_radius := 20.0 + noise_meter
-        for &enemy in level.enemies {
-            // Update enemy animation
-            enemy.frame_timer += dt
-            enemy_anim := &enemy_stunned_anim if enemy.stun_timer > 0 else &enemy_move_anim
-            if enemy.frame_timer >= enemy_anim.frame_time {
-                enemy.frame_timer = 0
-                enemy.current_frame = (enemy.current_frame + 1) % enemy_anim.frame_count
-            }
-
-            // Decrement stun timer
-            if enemy.stun_timer > 0 {
-                enemy.stun_timer -= dt
-                // Reset animation when recovering from stun
-                if enemy.stun_timer <= 0 {
-                    enemy.current_frame = 0
-                    enemy.frame_timer = 0
-                } else {
-                    continue  // Skip movement and detection while stunned
+                if rock.y > level.height + 50 {
+                    rock.active = false
+                    noise_meter += 60
                 }
             }
 
-            enemy.x += enemy.direction * ENEMY_SPEED * dt
-            if enemy.x <= enemy.start_x - ENEMY_PATROL_RANGE {
-                enemy.direction = 1
-            } else if enemy.x >= enemy.start_x + ENEMY_PATROL_RANGE {
-                enemy.direction = -1
+            // Update player state
+            prev_state := player.state
+            if climbing {
+                player.state = .Climbing
+            } else if !player.grounded {
+                player.state = .Jumping
+            } else if moving {
+                player.state = .Moving
+            } else {
+                player.state = .Idle
             }
 
-            // Check if player is within enemy's visibility radius
-            dx := player.x - enemy.x
-            dy := player.y - enemy.y
-            distance := rl.Vector2Length(rl.Vector2{dx, dy})
-            if distance <= visibility_radius {
+            if player.state != prev_state {
+                player.current_frame = 0
+                player.frame_timer = 0
+            }
+
+            // Update noise meter
+            if moving {
+                noise_meter += 4.0 * dt
+            } else {
+                noise_meter -= 3.0 * dt
+            }
+            noise_meter = clamp(noise_meter, 0, 100)
+
+            if noise_meter >= 100 {
                 game_over = true
             }
+
+            // Enemy update
+            visibility_radius := 20.0 + noise_meter
+            for &enemy in level.enemies {
+                enemy.frame_timer += dt
+                enemy_anim := &enemy_stunned_anim if enemy.stun_timer > 0 else &enemy_move_anim
+                if enemy.frame_timer >= enemy_anim.frame_time {
+                    enemy.frame_timer = 0
+                    enemy.current_frame = (enemy.current_frame + 1) % enemy_anim.frame_count
+                }
+
+                if enemy.stun_timer > 0 {
+                    enemy.stun_timer -= dt
+                    if enemy.stun_timer <= 0 {
+                        enemy.current_frame = 0
+                        enemy.frame_timer = 0
+                    } else {
+                        continue
+                    }
+                }
+
+                enemy.x += enemy.direction * ENEMY_SPEED * dt
+                if enemy.x <= enemy.start_x - ENEMY_PATROL_RANGE {
+                    enemy.direction = 1
+                } else if enemy.x >= enemy.start_x + ENEMY_PATROL_RANGE {
+                    enemy.direction = -1
+                }
+
+                dx := player.x - enemy.x
+                dy := player.y - enemy.y
+                distance := rl.Vector2Length(rl.Vector2{dx, dy})
+                if distance <= visibility_radius {
+                    game_over = true
+                }
+            }
+
+            // Tutorial triggers
+            if tutorial_step == .WaitForClimb && player.y < first_ladder_top + 16 {
+                tutorial_step = .ArrowTrap
+                tutorial_active = true
+            }
+
+            if tutorial_step == .WaitForTrapPass && player.x > trap_pos.x + TILE_SIZE && player.grounded {
+                tutorial_step = .ArrowItem
+                tutorial_active = true
+            }
         }
 
-        // Tutorial trigger: climbed the first ladder (reached top platform area)
-        if tutorial_step == .WaitForClimb && player.y < first_ladder_top + 16 {
-            tutorial_step = .ArrowTrap
-            tutorial_active = true
-        }
-
-        // Tutorial trigger: passed the trap (player x is past the trap, must be grounded)
-        if tutorial_step == .WaitForTrapPass && player.x > trap_pos.x + TILE_SIZE && player.grounded {
-            tutorial_step = .ArrowItem
-            tutorial_active = true
-        }
-        } // end if !game_over && !tutorial_active
-
-        // Animation (runs even during game over to keep sprite visible)
+        // Animation update
         current_anim: ^Animation
         switch player.state {
         case .Idle:
@@ -817,7 +517,7 @@ main :: proc() {
         case .Jumping:
             current_anim = &jump_anim
         case .Climbing:
-            current_anim = &idle_anim  // Reuse idle animation for climbing
+            current_anim = &idle_anim
         }
 
         if !game_over {
@@ -828,45 +528,34 @@ main :: proc() {
             }
         }
 
-        // Update camera to follow player, clamped to map bounds
+        // Update camera
         camera.target.x = clamp(player.x, camera.offset.x, level.width - camera.offset.x)
         camera.target.y = clamp(player.y, camera.offset.y, level.height - camera.offset.y)
 
-        // And here we do the drawing
-        // First render to the game-resolution texture
+        // Drawing
         rl.BeginTextureMode(target)
         rl.ClearBackground(rl.BLACK)
-
-        // Begin camera mode for world drawing
         rl.BeginMode2D(camera)
 
-        // Draw parallax background elements
-        // These move slower than the camera to create depth illusion
-        // Parallax factor: higher = less movement (more distant feel)
-        STAR_PARALLAX :: 0.5   // Stars are far away, barely move
-        MOON_PARALLAX :: 0.65  // Moon is closer than stars, subtle movement
+        // Parallax background
+        STAR_PARALLAX :: 0.5
+        MOON_PARALLAX :: 0.65
 
-        // Calculate camera offset from level center for parallax
         level_center_x := level.width / 2
         level_center_y := level.height / 2
         camera_offset_x := camera.target.x - level_center_x
         camera_offset_y := camera.target.y - level_center_y
 
-        // Draw stars (furthest back)
         for star in level.stars {
-            // Apply parallax: move opposite to camera at reduced rate
             parallax_x := star.x - camera_offset_x * (1 - STAR_PARALLAX)
             parallax_y := star.y - camera_offset_y * (1 - STAR_PARALLAX)
             rl.DrawTexture(star_texture, i32(parallax_x), i32(parallax_y), rl.WHITE)
         }
 
-        // Draw moon tiles (each 'M' is one 16x16 cell of the 64x64 moon texture)
         for moon in level.moon_tiles {
-            // Apply parallax
             parallax_x := moon.x - camera_offset_x * (1 - MOON_PARALLAX)
             parallax_y := moon.y - camera_offset_y * (1 - MOON_PARALLAX)
 
-            // Source rect: which 16x16 portion of the 64x64 texture
             moon_source := rl.Rectangle{
                 x      = f32(moon.grid_x * TILE_SIZE),
                 y      = f32(moon.grid_y * TILE_SIZE),
@@ -882,27 +571,14 @@ main :: proc() {
             rl.DrawTexturePro(moon_texture, moon_source, moon_dest, rl.Vector2{0, 0}, 0, rl.WHITE)
         }
 
-        // Draw all grounds
+        // Draw grounds
         for ground in level.grounds {
-            rl.DrawRectangle(
-                i32(ground.x),
-                i32(ground.y),
-                i32(ground.width),
-                i32(ground.height),
-                rl.GRAY,
-            )
+            rl.DrawRectangle(i32(ground.x), i32(ground.y), i32(ground.width), i32(ground.height), rl.GRAY)
         }
 
-        // Draw all ladders
+        // Draw ladders
         for ladder in level.ladders {
-            rl.DrawRectangle(
-                i32(ladder.x),
-                i32(ladder.y),
-                i32(ladder.width),
-                i32(ladder.height),
-                rl.BROWN,
-            )
-            // Ladder rungs
+            rl.DrawRectangle(i32(ladder.x), i32(ladder.y), i32(ladder.width), i32(ladder.height), rl.BROWN)
             rung_count := i32(ladder.height / TILE_SIZE) + 1
             for i in 0..<rung_count {
                 rung_y := i32(ladder.y) + i32(f32(i) * ladder.height / f32(rung_count)) + 6
@@ -910,24 +586,24 @@ main :: proc() {
             }
         }
 
-        // Draw all doors
+        // Draw doors
         for door in level.doors {
             rl.DrawTexture(door_texture, i32(door.x), i32(door.y), rl.WHITE)
         }
 
-        // Draw all traps
+        // Draw traps
         for trap in level.traps {
             rl.DrawTexture(trap_texture, i32(trap.x), i32(trap.y), rl.WHITE)
         }
 
-        // Draw all items (rock pickups)
+        // Draw items
         for item in level.items {
             if !item.collected {
                 rl.DrawTexture(rock_texture, i32(item.x), i32(item.y), rl.WHITE)
             }
         }
 
-
+        // Draw player
         source_rect := rl.Rectangle{
             x      = f32(player.current_frame * FRAME_SIZE),
             y      = 0,
@@ -942,26 +618,17 @@ main :: proc() {
             height = FRAME_SIZE,
         }
 
-        rl.DrawTexturePro(
-            current_anim.texture,
-            source_rect,
-            dest_rect,
-            rl.Vector2{0, 0},
-            0,
-            rl.WHITE,
-        )
+        rl.DrawTexturePro(current_anim.texture, source_rect, dest_rect, rl.Vector2{0, 0}, 0, rl.WHITE)
 
         // Draw enemies
         vis_radius := 20.0 + noise_meter
         for enemy in level.enemies {
             is_stunned := enemy.stun_timer > 0
             if !is_stunned {
-                // Draw visibility radius (circle) only when not stunned
                 rl.DrawCircleLines(i32(enemy.x), i32(enemy.y), vis_radius, rl.Color{255, 100, 100, 150})
                 rl.DrawCircle(i32(enemy.x), i32(enemy.y), vis_radius, rl.Color{255, 0, 0, 30})
             }
 
-            // Draw enemy sprite
             enemy_anim := &enemy_stunned_anim if is_stunned else &enemy_move_anim
             enemy_facing_left := enemy.direction < 0
 
@@ -979,43 +646,30 @@ main :: proc() {
                 height = FRAME_SIZE,
             }
 
-            rl.DrawTexturePro(
-                enemy_anim.texture,
-                enemy_source_rect,
-                enemy_dest_rect,
-                rl.Vector2{0, 0},
-                0,
-                rl.WHITE,
-            )
+            rl.DrawTexturePro(enemy_anim.texture, enemy_source_rect, enemy_dest_rect, rl.Vector2{0, 0}, 0, rl.WHITE)
         }
 
-        // Draw rock projectile (scaled down to 8x8)
+        // Draw rock projectile
         if rock.active {
             rock_source := rl.Rectangle{0, 0, 16, 16}
-            rock_dest := rl.Rectangle{rock.x - 4, rock.y - 4, 8, 8}  // Centered, half size
+            rock_dest := rl.Rectangle{rock.x - 4, rock.y - 4, 8, 8}
             rl.DrawTexturePro(rock_texture, rock_source, rock_dest, rl.Vector2{0, 0}, 0, rl.WHITE)
         }
 
-        // End camera mode before drawing UI
         rl.EndMode2D()
 
-        // Draw noise meter
+        // Draw UI
         METER_X      :: 10
         METER_Y      :: 10
         METER_WIDTH  :: 100
         METER_HEIGHT :: 12
 
-        // Background (empty meter)
         rl.DrawRectangle(METER_X, METER_Y, METER_WIDTH, METER_HEIGHT, rl.DARKGRAY)
-        // Filled portion
         filled_width := i32(noise_meter)
         rl.DrawRectangle(METER_X, METER_Y, filled_width, METER_HEIGHT, rl.RED)
-        // Border
         rl.DrawRectangleLines(METER_X, METER_Y, METER_WIDTH, METER_HEIGHT, rl.WHITE)
-        // Label
         rl.DrawText("NOISE", METER_X, METER_Y + METER_HEIGHT + 2, 10, rl.WHITE)
 
-        // Guard stunned indicator - show countdown for stunned enemy
         for enemy in level.enemies {
             if enemy.stun_timer > 0 {
                 stun_text := rl.TextFormat("Guard Stunned %.0fs", enemy.stun_timer)
@@ -1024,7 +678,6 @@ main :: proc() {
             }
         }
 
-        // Rock indicator
         if player.has_rock {
             rl.DrawCircle(130, 16, 6, rl.Color{139, 119, 101, 255})
             rl.DrawText("LMB", 140, 10, 10, rl.WHITE)
@@ -1032,74 +685,63 @@ main :: proc() {
 
         // Tutorial overlay
         if tutorial_step != .Complete {
-            // Draw flashing arrow for ladder/item steps
+            // Flashing arrows
             if tutorial_step == .ArrowLadder || tutorial_step == .WaitForClimb {
-                // Calculate screen position of first ladder
                 arrow_world_x := first_ladder_x + TILE_SIZE / 2
                 arrow_world_y := first_ladder_top - 20
                 arrow_screen_x := arrow_world_x - camera.target.x + camera.offset.x
                 arrow_screen_y := arrow_world_y - camera.target.y + camera.offset.y
 
-                // Flashing effect using sin wave
                 alpha := u8(150 + 100 * math.sin(arrow_timer * 5.0))
                 arrow_color := rl.Color{255, 255, 0, alpha}
 
-                // Draw downward pointing arrow (triangle)
                 rl.DrawTriangle(
-                    rl.Vector2{arrow_screen_x, arrow_screen_y + 15},      // Bottom point
-                    rl.Vector2{arrow_screen_x + 8, arrow_screen_y},       // Top right
-                    rl.Vector2{arrow_screen_x - 8, arrow_screen_y},       // Top left
+                    rl.Vector2{arrow_screen_x, arrow_screen_y + 15},
+                    rl.Vector2{arrow_screen_x + 8, arrow_screen_y},
+                    rl.Vector2{arrow_screen_x - 8, arrow_screen_y},
                     arrow_color,
                 )
             }
 
             if tutorial_step == .ArrowTrap || tutorial_step == .WaitForTrapPass {
-                // Calculate screen position of trap
                 arrow_world_x := trap_pos.x
                 arrow_world_y := trap_pos.y - 20
                 arrow_screen_x := arrow_world_x - camera.target.x + camera.offset.x
                 arrow_screen_y := arrow_world_y - camera.target.y + camera.offset.y
 
-                // Flashing effect using sin wave
                 alpha := u8(150 + 100 * math.sin(arrow_timer * 5.0))
                 arrow_color := rl.Color{255, 255, 0, alpha}
 
-                // Draw downward pointing arrow (triangle)
                 rl.DrawTriangle(
-                    rl.Vector2{arrow_screen_x, arrow_screen_y + 15},      // Bottom point
-                    rl.Vector2{arrow_screen_x + 8, arrow_screen_y},       // Top right
-                    rl.Vector2{arrow_screen_x - 8, arrow_screen_y},       // Top left
+                    rl.Vector2{arrow_screen_x, arrow_screen_y + 15},
+                    rl.Vector2{arrow_screen_x + 8, arrow_screen_y},
+                    rl.Vector2{arrow_screen_x - 8, arrow_screen_y},
                     arrow_color,
                 )
             }
 
             if tutorial_step == .ArrowItem || tutorial_step == .RockInfo2 || tutorial_step == .WaitForPickup {
-                // Calculate screen position of item
                 arrow_world_x := item_pos.x
                 arrow_world_y := item_pos.y - 20
                 arrow_screen_x := arrow_world_x - camera.target.x + camera.offset.x
                 arrow_screen_y := arrow_world_y - camera.target.y + camera.offset.y
 
-                // Flashing effect using sin wave
                 alpha := u8(150 + 100 * math.sin(arrow_timer * 5.0))
                 arrow_color := rl.Color{255, 255, 0, alpha}
 
-                // Draw downward pointing arrow (triangle)
                 rl.DrawTriangle(
-                    rl.Vector2{arrow_screen_x, arrow_screen_y + 15},      // Bottom point
-                    rl.Vector2{arrow_screen_x + 8, arrow_screen_y},       // Top right
-                    rl.Vector2{arrow_screen_x - 8, arrow_screen_y},       // Top left
+                    rl.Vector2{arrow_screen_x, arrow_screen_y + 15},
+                    rl.Vector2{arrow_screen_x + 8, arrow_screen_y},
+                    rl.Vector2{arrow_screen_x - 8, arrow_screen_y},
                     arrow_color,
                 )
             }
 
-            // Draw dialogue box when tutorial is active
+            // Dialogue box
             if tutorial_active {
-                // Semi-transparent background
                 rl.DrawRectangle(40, 220, 560, 120, rl.Color{0, 0, 0, 200})
                 rl.DrawRectangleLines(40, 220, 560, 120, rl.WHITE)
 
-                // Get the dialogue text for current step
                 dialogue_text: cstring = ""
                 switch tutorial_step {
                 case .Intro1:
@@ -1121,13 +763,11 @@ main :: proc() {
                 case .ThrowInfo:
                     dialogue_text = TUTORIAL_THROW
                 case .WaitForClimb, .WaitForTrapPass, .WaitForPickup, .Complete:
-                    // No dialogue for these states
+                    // No dialogue
                 }
 
-                // Draw dialogue text
                 rl.DrawText(dialogue_text, 55, 235, 15, rl.WHITE)
 
-                // Draw "Press Enter" prompt (flashing)
                 prompt_alpha := u8(150 + 100 * math.sin(arrow_timer * 3.0))
                 rl.DrawText("Press Enter", 270, 315, 15, rl.Color{255, 255, 255, prompt_alpha})
             }
@@ -1142,14 +782,13 @@ main :: proc() {
 
         rl.EndTextureMode()
 
-        // Now draw the render texture scaled to fit the screen
+        // Draw scaled to screen
         rl.BeginDrawing()
         rl.ClearBackground(rl.BLACK)
 
-        // Draw render texture centered and scaled
         rl.DrawTexturePro(
             target.texture,
-            rl.Rectangle{0, 0, GAME_WIDTH, -GAME_HEIGHT},  // Flip Y (render textures are flipped)
+            rl.Rectangle{0, 0, GAME_WIDTH, -GAME_HEIGHT},
             rl.Rectangle{
                 (f32(screen_width) - GAME_WIDTH * scale) * 0.5,
                 (f32(screen_height) - GAME_HEIGHT * scale) * 0.5,
