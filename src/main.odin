@@ -392,9 +392,9 @@ main :: proc() {
             rock.x = player.x
             rock.y = player.y
             rock.start_x = player.x
-            // Throw in direction player is facing with parabolic arc
+            // Throw in direction player is facing - travels straight for 320px then drops
             rock.vel_x = 80.0 if !player.facing_left else -80.0
-            rock.vel_y = -60.0  // Initial upward velocity for arc
+            rock.vel_y = 0  // No vertical velocity until rock drops
             player.has_rock = false
             noise_meter += 10  // +10 noise when thrown
         }
@@ -402,13 +402,13 @@ main :: proc() {
         // Update rock projectile
         if rock.active {
             rock.x += rock.vel_x * dt
-            rock.vel_y += GRAVITY * 0.5 * dt  // Lighter gravity for arc
-            rock.y += rock.vel_y * dt
 
             // Check if rock has traveled 320px horizontally
             if abs(rock.x - rock.start_x) >= 320.0 {
                 // Rock falls straight down after 320px travel
                 rock.vel_x = 0
+                rock.vel_y += GRAVITY * 0.5 * dt  // Apply gravity only after 320px
+                rock.y += rock.vel_y * dt
             }
 
             // Check collision with enemies (stun them)
