@@ -136,10 +136,12 @@ Animation :: struct {
 }
 
 Enemy :: struct {
-    x, y:        f32,
-    start_x:     f32,
-    direction:   f32,  // 1 = right, -1 = left
-    stun_timer:  f32,  // Seconds remaining stunned (0 = not stunned)
+    x, y:          f32,
+    start_x:       f32,
+    direction:     f32,  // 1 = right, -1 = left
+    stun_timer:    f32,  // Seconds remaining stunned (0 = not stunned)
+    current_frame: i32,
+    frame_timer:   f32,
 }
 
 Door :: struct {
@@ -168,16 +170,19 @@ Rock :: struct {
 }
 
 TutorialStep :: enum {
-    Intro1,        // Movement and noise meter
-    Intro2,        // Guard detection
-    Intro3,        // Sensory regions grow
-    ArrowLadder,   // Flashing arrow + climb dialogue
-    WaitForClimb,  // Player must climb
-    ArrowItem,     // Flashing arrow + rock dialogue
-    RockInfo2,     // Miss penalty dialogue
-    WaitForPickup, // Player must pick up
-    ThrowInfo,     // Left click dialogue
-    Complete,      // Tutorial done
+    Intro1,         // Movement and noise meter
+    Intro2,         // Guard detection
+    Intro3,         // Sensory regions grow
+    Intro4,         // Standing still depletes noise
+    ArrowLadder,    // Flashing arrow + climb dialogue
+    WaitForClimb,   // Player must climb
+    ArrowTrap,      // Flashing arrow + trap warning
+    WaitForTrapPass,// Player must pass the trap
+    ArrowItem,      // Flashing arrow + rock dialogue
+    RockInfo2,      // Miss penalty dialogue
+    WaitForPickup,  // Player must pick up
+    ThrowInfo,      // Left click dialogue
+    Complete,       // Tutorial done
 }
 
 // Tutorial dialogue strings
@@ -187,13 +192,17 @@ TUTORIAL_INTRO2 :: "If your Noise meter becomes full, you will be captured!\nIf 
 
 TUTORIAL_INTRO3 :: "The guards' sensory regions will grow as your\nNoise meter grows too."
 
+TUTORIAL_INTRO4 :: "Standing still will deplete your noise meter and\nthe guards' sensory region. Be patient!"
+
 TUTORIAL_LADDER :: "Head up this ladder with W.\nBut be careful, climbing makes noise too!"
+
+TUTORIAL_TRAP :: "Be careful of trash or objects on the ground,\nthey can make a lot of noise and get you caught!"
 
 TUTORIAL_ROCK1 :: "If you find a rock, you can pick it up and throw it.\nIf it hits a guard, they will be stunned for 5 seconds."
 
 TUTORIAL_ROCK2 :: "But if you miss, you will make a lot of noise!\nMake sure you are close enough to hit the guard!"
 
-TUTORIAL_THROW :: "Left click in the direction of the guard to stun them."
+TUTORIAL_THROW :: "Left click in the direction of the guard\nto throw the rock at them."
 
 ENEMY_SPEED :: 30.0
 ENEMY_PATROL_RANGE :: 30.0
@@ -240,6 +249,21 @@ main :: proc() {
     }
     defer rl.UnloadTexture(jump_anim.texture)
 
+    // Enemy animations
+    enemy_move_anim := Animation{
+        texture     = rl.LoadTexture("assets/sprites/enemy_movement.png"),
+        frame_count = 7,
+        frame_time  = 0.12,
+    }
+    defer rl.UnloadTexture(enemy_move_anim.texture)
+
+    enemy_stunned_anim := Animation{
+        texture     = rl.LoadTexture("assets/sprites/enemy_stunned.png"),
+        frame_count = 7,
+        frame_time  = 0.15,
+    }
+    defer rl.UnloadTexture(enemy_stunned_anim.texture)
+
     // Load level from file
     level := load_level("assets/maps/level1.txt")
     defer unload_level(&level)
@@ -267,6 +291,7 @@ main :: proc() {
     first_ladder_x: f32 = 0
     first_ladder_top: f32 = 999999
     item_pos := rl.Vector2{0, 0}
+    trap_pos := rl.Vector2{0, 0}
 
     // Find first ladder position and item position for tutorial arrows
     for ladder in level.ladders {
@@ -278,6 +303,10 @@ main :: proc() {
     for item in level.items {
         item_pos = {item.x + item.width / 2, item.y}
         break  // Just get first item position
+    }
+    for trap in level.traps {
+        trap_pos = {trap.x + trap.width / 2, trap.y}
+        break  // Just get first trap position
     }
 
     // Camera setup - follows the player
@@ -304,9 +333,14 @@ main :: proc() {
             case .Intro2:
                 tutorial_step = .Intro3
             case .Intro3:
+                tutorial_step = .Intro4
+            case .Intro4:
                 tutorial_step = .ArrowLadder
             case .ArrowLadder:
                 tutorial_step = .WaitForClimb
+                tutorial_active = false
+            case .ArrowTrap:
+                tutorial_step = .WaitForTrapPass
                 tutorial_active = false
             case .ArrowItem:
                 tutorial_step = .RockInfo2
@@ -316,7 +350,7 @@ main :: proc() {
             case .ThrowInfo:
                 tutorial_step = .Complete
                 tutorial_active = false
-            case .WaitForClimb, .WaitForPickup, .Complete:
+            case .WaitForClimb, .WaitForTrapPass, .WaitForPickup, .Complete:
                 // No action for these states
             }
         }
@@ -335,6 +369,8 @@ main :: proc() {
             for &enemy in level.enemies {
                 enemy.x = enemy.start_x
                 enemy.stun_timer = 0
+                enemy.current_frame = 0
+                enemy.frame_timer = 0
             }
             // Reset traps
             for &trap in level.traps {
@@ -500,6 +536,8 @@ main :: proc() {
                 distance := rl.Vector2Length(rl.Vector2{dx, dy})
                 if distance <= 10.0 {  // Hit radius
                     enemy.stun_timer = 5.0  // Stun for 5 seconds
+                    enemy.current_frame = 0  // Reset animation for clean transition
+                    enemy.frame_timer = 0
                     rock.active = false
                     hit_enemy = true
                     break
@@ -559,10 +597,24 @@ main :: proc() {
         // Enemy patrol movement and collision detection
         visibility_radius := 20.0 + noise_meter
         for &enemy in level.enemies {
+            // Update enemy animation
+            enemy.frame_timer += dt
+            enemy_anim := &enemy_stunned_anim if enemy.stun_timer > 0 else &enemy_move_anim
+            if enemy.frame_timer >= enemy_anim.frame_time {
+                enemy.frame_timer = 0
+                enemy.current_frame = (enemy.current_frame + 1) % enemy_anim.frame_count
+            }
+
             // Decrement stun timer
             if enemy.stun_timer > 0 {
                 enemy.stun_timer -= dt
-                continue  // Skip movement and detection while stunned
+                // Reset animation when recovering from stun
+                if enemy.stun_timer <= 0 {
+                    enemy.current_frame = 0
+                    enemy.frame_timer = 0
+                } else {
+                    continue  // Skip movement and detection while stunned
+                }
             }
 
             enemy.x += enemy.direction * ENEMY_SPEED * dt
@@ -583,6 +635,12 @@ main :: proc() {
 
         // Tutorial trigger: climbed the first ladder (reached top platform area)
         if tutorial_step == .WaitForClimb && player.y < first_ladder_top + 16 {
+            tutorial_step = .ArrowTrap
+            tutorial_active = true
+        }
+
+        // Tutorial trigger: passed the trap (player x is past the trap, must be grounded)
+        if tutorial_step == .WaitForTrapPass && player.x > trap_pos.x + TILE_SIZE && player.grounded {
             tutorial_step = .ArrowItem
             tutorial_active = true
         }
@@ -717,13 +775,33 @@ main :: proc() {
                 rl.DrawCircleLines(i32(enemy.x), i32(enemy.y), vis_radius, rl.Color{255, 100, 100, 150})
                 rl.DrawCircle(i32(enemy.x), i32(enemy.y), vis_radius, rl.Color{255, 0, 0, 30})
             }
-            // Draw enemy (16x16 ellipse placeholder) - blue when stunned
-            enemy_color := rl.BLUE if is_stunned else rl.RED
-            rl.DrawEllipse(i32(enemy.x), i32(enemy.y), 8, 8, enemy_color)
-            // Draw stun indicator (stars above head)
-            if is_stunned {
-                rl.DrawText("*", i32(enemy.x) - 4, i32(enemy.y) - 16, 10, rl.YELLOW)
+
+            // Draw enemy sprite
+            enemy_anim := &enemy_stunned_anim if is_stunned else &enemy_move_anim
+            enemy_facing_left := enemy.direction < 0
+
+            enemy_source_rect := rl.Rectangle{
+                x      = f32(enemy.current_frame * FRAME_SIZE),
+                y      = 0,
+                width  = FRAME_SIZE if !enemy_facing_left else -FRAME_SIZE,
+                height = FRAME_SIZE,
             }
+
+            enemy_dest_rect := rl.Rectangle{
+                x      = enemy.x - FRAME_SIZE / 2,
+                y      = enemy.y - FRAME_SIZE / 2,
+                width  = FRAME_SIZE,
+                height = FRAME_SIZE,
+            }
+
+            rl.DrawTexturePro(
+                enemy_anim.texture,
+                enemy_source_rect,
+                enemy_dest_rect,
+                rl.Vector2{0, 0},
+                0,
+                rl.WHITE,
+            )
         }
 
         // Draw rock projectile
@@ -788,6 +866,26 @@ main :: proc() {
                 )
             }
 
+            if tutorial_step == .ArrowTrap || tutorial_step == .WaitForTrapPass {
+                // Calculate screen position of trap
+                arrow_world_x := trap_pos.x
+                arrow_world_y := trap_pos.y - 20
+                arrow_screen_x := arrow_world_x - camera.target.x + camera.offset.x
+                arrow_screen_y := arrow_world_y - camera.target.y + camera.offset.y
+
+                // Flashing effect using sin wave
+                alpha := u8(150 + 100 * math.sin(arrow_timer * 5.0))
+                arrow_color := rl.Color{255, 255, 0, alpha}
+
+                // Draw downward pointing arrow (triangle)
+                rl.DrawTriangle(
+                    rl.Vector2{arrow_screen_x, arrow_screen_y + 15},      // Bottom point
+                    rl.Vector2{arrow_screen_x + 8, arrow_screen_y},       // Top right
+                    rl.Vector2{arrow_screen_x - 8, arrow_screen_y},       // Top left
+                    arrow_color,
+                )
+            }
+
             if tutorial_step == .ArrowItem || tutorial_step == .RockInfo2 || tutorial_step == .WaitForPickup {
                 // Calculate screen position of item
                 arrow_world_x := item_pos.x
@@ -823,15 +921,19 @@ main :: proc() {
                     dialogue_text = TUTORIAL_INTRO2
                 case .Intro3:
                     dialogue_text = TUTORIAL_INTRO3
+                case .Intro4:
+                    dialogue_text = TUTORIAL_INTRO4
                 case .ArrowLadder:
                     dialogue_text = TUTORIAL_LADDER
+                case .ArrowTrap:
+                    dialogue_text = TUTORIAL_TRAP
                 case .ArrowItem:
                     dialogue_text = TUTORIAL_ROCK1
                 case .RockInfo2:
                     dialogue_text = TUTORIAL_ROCK2
                 case .ThrowInfo:
                     dialogue_text = TUTORIAL_THROW
-                case .WaitForClimb, .WaitForPickup, .Complete:
+                case .WaitForClimb, .WaitForTrapPass, .WaitForPickup, .Complete:
                     // No dialogue for these states
                 }
 
