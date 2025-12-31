@@ -273,7 +273,7 @@ main :: proc() {
             if rl.IsKeyPressed(.SPACE) && player.grounded && !on_ladder {
                 player.vel_y = -JUMP_FORCE
                 player.grounded = false
-                noise_meter += 20
+                noise_meter += 5
             }
 
             was_airborne := !player.grounded
@@ -293,7 +293,7 @@ main :: proc() {
                         player.y = ground_top
                         player.vel_y = 0
                         if was_airborne && !on_ladder {
-                            noise_meter += 10
+                            noise_meter += 15
                         }
                         player.grounded = true
                     }
@@ -681,6 +681,13 @@ main :: proc() {
         if player.has_rock {
             rl.DrawCircle(130, 16, 6, rl.Color{139, 119, 101, 255})
             rl.DrawText("LMB", 140, 10, 10, rl.WHITE)
+        }
+
+        // Goal text for level 1
+        if current_level == 1 {
+            goal_text : cstring = "Goal: Locate the exit!"
+            text_width := rl.MeasureText(goal_text, 12)
+            rl.DrawText(goal_text, (GAME_WIDTH - text_width) / 2, 8, 12, rl.YELLOW)
         }
 
         // Tutorial overlay
