@@ -467,7 +467,7 @@ main :: proc() {
             noise_meter += 4.0 * dt
         } else {
             // Decrease by 2 per second (half of movement rate)
-            noise_meter -= 2.0 * dt
+            noise_meter -= 3.0 * dt
         }
         noise_meter = clamp(noise_meter, 0, 100)
 
@@ -662,6 +662,15 @@ main :: proc() {
         rl.DrawRectangleLines(METER_X, METER_Y, METER_WIDTH, METER_HEIGHT, rl.WHITE)
         // Label
         rl.DrawText("NOISE", METER_X, METER_Y + METER_HEIGHT + 2, 10, rl.WHITE)
+
+        // Guard stunned indicator - show countdown for stunned enemy
+        for enemy in level.enemies {
+            if enemy.stun_timer > 0 {
+                stun_text := rl.TextFormat("Guard Stunned %.0fs", enemy.stun_timer)
+                rl.DrawText(stun_text, METER_X + METER_WIDTH + 10, METER_Y, 10, rl.SKYBLUE)
+                break
+            }
+        }
 
         // Rock indicator
         if player.has_rock {
