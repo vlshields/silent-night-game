@@ -11,6 +11,9 @@ main :: proc() {
     rl.InitWindow(0, 0, "Silent Night")
     defer rl.CloseWindow()
 
+    init_audio()
+    defer cleanup_audio()
+
     screen_width := rl.GetScreenWidth()
     screen_height := rl.GetScreenHeight()
 
@@ -274,6 +277,7 @@ main :: proc() {
                 player.vel_y = -JUMP_FORCE
                 player.grounded = false
                 noise_meter += 5
+                play_jump()
             }
 
             was_airborne := !player.grounded
@@ -294,6 +298,7 @@ main :: proc() {
                         player.vel_y = 0
                         if was_airborne && !on_ladder {
                             noise_meter += 15
+                            play_land()
                         }
                         player.grounded = true
                     }
@@ -309,6 +314,7 @@ main :: proc() {
                         player.vel_y = 0
                         if was_airborne && !on_ladder {
                             noise_meter += 10
+                            play_land()
                         }
                         player.grounded = true
                     }
@@ -455,6 +461,9 @@ main :: proc() {
                 noise_meter -= 3.0 * dt
             }
             noise_meter = clamp(noise_meter, 0, 100)
+
+            // Update footstep sounds
+            update_footsteps(moving, player.grounded, dt)
 
             if noise_meter >= 100 {
                 game_over = true
