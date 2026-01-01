@@ -13,6 +13,7 @@ TutorialStep :: enum {
     RockInfo2,
     WaitForPickup,
     ThrowInfo,
+    Level3Intro,
     Complete,
 }
 
@@ -33,3 +34,5 @@ TUTORIAL_ROCK1 :: "If you find a rock, you can pick it up and throw it.\nIf it h
 TUTORIAL_ROCK2 :: "But if you miss, you will make a lot of noise!\nMake sure you are close enough to hit the guard!"
 
 TUTORIAL_THROW :: "Left click in the direction of the guard\nto throw the rock at them."
+
+TUTORIAL_LEVEL3 :: "The legendary Moog is close by, you must find it!"

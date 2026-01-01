@@ -161,6 +161,9 @@ main :: proc() {
             case .ThrowInfo:
                 tutorial_step = .Complete
                 tutorial_active = false
+            case .Level3Intro:
+                tutorial_step = .Complete
+                tutorial_active = false
             case .WaitForClimb, .WaitForTrapPass, .WaitForPickup, .Complete:
                 // No action
             }
@@ -175,6 +178,8 @@ main :: proc() {
             player.grounded = true
             player.state = .Idle
             player.has_rock = false
+            player.has_instrument = false
+            player.instrument_cooldown = 0
             rock = Rock{}
             for &enemy in level.enemies {
                 enemy.x = enemy.start_x
@@ -187,6 +192,9 @@ main :: proc() {
             }
             for &item in level.items {
                 item.collected = false
+            }
+            for &instrument in level.instruments {
+                instrument.collected = false
             }
             game_over = false
         }
@@ -201,6 +209,10 @@ main :: proc() {
                 level = load_level("assets/maps/level2.txt")
                 tutorial_step = .Complete
                 tutorial_active = false
+            } else if current_level == 3 {
+                level = load_level("assets/maps/level3.txt")
+                tutorial_step = .Level3Intro
+                tutorial_active = true
             } else {
                 current_level = 1
                 level = load_level("assets/maps/level1.txt")
@@ -212,6 +224,8 @@ main :: proc() {
             player.grounded = true
             player.state = .Idle
             player.has_rock = false
+            player.has_instrument = false
+            player.instrument_cooldown = 0
             rock = Rock{}
             noise_meter = 0
 
@@ -350,13 +364,15 @@ main :: proc() {
 
             // Trap trigger
             for &trap in level.traps {
-                if !trap.triggered {
-                    trap_top := trap.y - 8
-                    if player.x >= trap.x && player.x <= trap.x + trap.width &&
-                       player.y >= trap_top && player.y <= trap_top + 8 {
-                        trap.triggered = true
-                        noise_meter += 40
-                    }
+                trap_top := trap.y - 8
+                on_trap := player.x >= trap.x && player.x <= trap.x + trap.width &&
+                           player.y >= trap_top && player.y <= trap_top + 8
+                if on_trap && !trap.triggered {
+                    trap.triggered = true
+                    noise_meter += 40
+                    play_trap()
+                } else if !on_trap && trap.triggered {
+                    trap.triggered = false
                 }
             }
 
@@ -371,6 +387,17 @@ main :: proc() {
                             tutorial_step = .ThrowInfo
                             tutorial_active = true
                         }
+                    }
+                }
+            }
+
+            // Instrument pickup
+            for &instrument in level.instruments {
+                if !instrument.collected && !player.has_instrument {
+                    if player.x >= instrument.x && player.x <= instrument.x + instrument.width &&
+                       player.y >= instrument.y && player.y <= instrument.y + instrument.height {
+                        instrument.collected = true
+                        player.has_instrument = true
                     }
                 }
             }
@@ -394,6 +421,21 @@ main :: proc() {
                 rock.vel_y = 0
                 player.has_rock = false
                 noise_meter += 5
+            }
+
+            // Instrument use
+            if player.has_instrument && player.instrument_cooldown <= 0 && rl.IsKeyPressed(.E) {
+                for &enemy in level.enemies {
+                    enemy.stun_timer = INSTRUMENT_STUN
+                    enemy.current_frame = 0
+                    enemy.frame_timer = 0
+                }
+                player.instrument_cooldown = INSTRUMENT_COOLDOWN
+            }
+
+            // Update instrument cooldown
+            if player.instrument_cooldown > 0 {
+                player.instrument_cooldown -= dt
             }
 
             // Update rock
@@ -613,6 +655,14 @@ main :: proc() {
             }
         }
 
+        // Draw instruments
+        for instrument in level.instruments {
+            if !instrument.collected {
+                rl.DrawRectangle(i32(instrument.x), i32(instrument.y), i32(instrument.width), i32(instrument.height), rl.GOLD)
+                rl.DrawText("G", i32(instrument.x) + 4, i32(instrument.y) + 2, 10, rl.BLACK)
+            }
+        }
+
         // Draw player
         source_rect := rl.Rectangle{
             x      = f32(player.current_frame * FRAME_SIZE),
@@ -691,6 +741,17 @@ main :: proc() {
         if player.has_rock {
             rl.DrawCircle(130, 16, 6, rl.Color{139, 119, 101, 255})
             rl.DrawText("LMB", 140, 10, 10, rl.WHITE)
+        }
+
+        if player.has_instrument {
+            inst_x: i32 = 170
+            rl.DrawRectangle(inst_x, 10, 12, 12, rl.GOLD)
+            if player.instrument_cooldown > 0 {
+                cooldown_text := rl.TextFormat("%.0fs", player.instrument_cooldown)
+                rl.DrawText(cooldown_text, inst_x + 16, 10, 10, rl.GRAY)
+            } else {
+                rl.DrawText("[E]", inst_x + 16, 10, 10, rl.WHITE)
+            }
         }
 
         // Goal text for level 1
@@ -779,6 +840,8 @@ main :: proc() {
                     dialogue_text = TUTORIAL_ROCK2
                 case .ThrowInfo:
                     dialogue_text = TUTORIAL_THROW
+                case .Level3Intro:
+                    dialogue_text = TUTORIAL_LEVEL3
                 case .WaitForClimb, .WaitForTrapPass, .WaitForPickup, .Complete:
                     // No dialogue
                 }
