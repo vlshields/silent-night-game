@@ -362,6 +362,11 @@ main :: proc() {
                 }
             }
 
+            // Map boundary collision (invisible walls)
+            half_frame := f32(FRAME_SIZE) / 2
+            player.x = clamp(player.x, half_frame, level.width - half_frame)
+            player.y = clamp(player.y, half_frame, level.height)
+
             // Trap trigger
             for &trap in level.traps {
                 trap_top := trap.y - 8
