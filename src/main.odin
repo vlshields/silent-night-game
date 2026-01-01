@@ -134,6 +134,7 @@ main :: proc() {
     for !rl.WindowShouldClose() {
         dt := rl.GetFrameTime()
         arrow_timer += dt
+        update_music()
 
         // Tutorial input handling
         if tutorial_active && rl.IsKeyPressed(.ENTER) {

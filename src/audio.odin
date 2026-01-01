@@ -12,6 +12,8 @@ footstep_timer: f32 = 0
 jump_sound: rl.Sound
 land_sound: rl.Sound
 
+bg_music: rl.Music
+
 init_audio :: proc() {
     rl.InitAudioDevice()
     for i in 0..<FOOTSTEP_COUNT {
@@ -20,6 +22,10 @@ init_audio :: proc() {
     }
     jump_sound = rl.LoadSound("audio_engine/jump.wav")
     land_sound = rl.LoadSound("audio_engine/land.wav")
+
+    bg_music = rl.LoadMusicStream("audio_engine/background_music.wav")
+    bg_music.looping = true
+    rl.PlayMusicStream(bg_music)
 }
 
 cleanup_audio :: proc() {
@@ -28,7 +34,12 @@ cleanup_audio :: proc() {
     }
     rl.UnloadSound(jump_sound)
     rl.UnloadSound(land_sound)
+    rl.UnloadMusicStream(bg_music)
     rl.CloseAudioDevice()
+}
+
+update_music :: proc() {
+    rl.UpdateMusicStream(bg_music)
 }
 
 update_footsteps :: proc(is_moving: bool, is_grounded: bool, dt: f32) {
