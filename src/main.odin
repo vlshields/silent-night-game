@@ -71,9 +71,6 @@ main :: proc() {
     moon_texture := rl.LoadTexture("assets/sprites/Evil_moon_bg.png")
     defer rl.UnloadTexture(moon_texture)
 
-    star_texture := rl.LoadTexture("assets/sprites/star_bg.png")
-    defer rl.UnloadTexture(star_texture)
-
     // Load level
     level := load_level("assets/maps/level1.txt")
     defer unload_level(&level)
@@ -595,19 +592,12 @@ main :: proc() {
         rl.BeginMode2D(camera)
 
         // Parallax background
-        STAR_PARALLAX :: 0.5
         MOON_PARALLAX :: 0.65
 
         level_center_x := level.width / 2
         level_center_y := level.height / 2
         camera_offset_x := camera.target.x - level_center_x
         camera_offset_y := camera.target.y - level_center_y
-
-        for star in level.stars {
-            parallax_x := star.x - camera_offset_x * (1 - STAR_PARALLAX)
-            parallax_y := star.y - camera_offset_y * (1 - STAR_PARALLAX)
-            rl.DrawTexture(star_texture, i32(parallax_x), i32(parallax_y), rl.WHITE)
-        }
 
         for moon in level.moon_tiles {
             parallax_x := moon.x - camera_offset_x * (1 - MOON_PARALLAX)

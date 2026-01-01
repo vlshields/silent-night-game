@@ -13,8 +13,8 @@ Level :: struct {
     doors:        [dynamic]Door,
     traps:        [dynamic]Trap,
     items:        [dynamic]Item,
+    instruments:  [dynamic]Instrument,
     moon_tiles:   [dynamic]MoonTile,
-    stars:        [dynamic]Star,
     player_spawn: rl.Vector2,
     width:        f32,
     height:       f32,
@@ -47,14 +47,16 @@ Item :: struct {
     collected:     bool,
 }
 
+Instrument :: struct {
+    x, y:          f32,
+    width, height: f32,
+    collected:     bool,
+}
+
 MoonTile :: struct {
     x, y:       f32,
     grid_x:     i32,
     grid_y:     i32,
-}
-
-Star :: struct {
-    x, y:       f32,
 }
 
 load_level :: proc(path: string) -> Level {
@@ -65,8 +67,8 @@ load_level :: proc(path: string) -> Level {
         doors        = make([dynamic]Door),
         traps        = make([dynamic]Trap),
         items        = make([dynamic]Item),
+        instruments  = make([dynamic]Instrument),
         moon_tiles   = make([dynamic]MoonTile),
-        stars        = make([dynamic]Star),
         player_spawn = {100, 317},
     }
 
@@ -134,6 +136,8 @@ load_level :: proc(path: string) -> Level {
                 append(&level.traps, Trap{x, y, TILE_SIZE, TILE_SIZE, false})
             case 'I':
                 append(&level.items, Item{x, y, TILE_SIZE, TILE_SIZE, false})
+            case 'G':
+                append(&level.instruments, Instrument{x, y, TILE_SIZE, TILE_SIZE, false})
             case 'M':
                 if moon_origin_x < 0 || col < int(moon_origin_x) {
                     moon_origin_x = i32(col)
@@ -147,8 +151,6 @@ load_level :: proc(path: string) -> Level {
                     grid_x = i32(col),
                     grid_y = i32(row),
                 })
-            case 'S':
-                append(&level.stars, Star{x, y})
             }
         }
     }
@@ -171,6 +173,6 @@ unload_level :: proc(level: ^Level) {
     delete(level.doors)
     delete(level.traps)
     delete(level.items)
+    delete(level.instruments)
     delete(level.moon_tiles)
-    delete(level.stars)
 }
