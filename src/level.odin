@@ -19,6 +19,7 @@ Level :: struct {
     moon_tiles:         [dynamic]MoonTile,
     angry_planet_tiles: [dynamic]AngryPlanetTile,
     buildings:          [dynamic]BuildingTile,
+    win_tiles:          [dynamic]WinTile,
     player_spawn:       rl.Vector2,
     width:              f32,
     height:             f32,
@@ -86,6 +87,11 @@ BuildingTile :: struct {
     type:       BuildingType,
 }
 
+WinTile :: struct {
+    x, y:          f32,
+    width, height: f32,
+}
+
 load_level :: proc(path: string) -> Level {
     level := Level{
         grounds            = make([dynamic]Ground),
@@ -99,6 +105,7 @@ load_level :: proc(path: string) -> Level {
         moon_tiles         = make([dynamic]MoonTile),
         angry_planet_tiles = make([dynamic]AngryPlanetTile),
         buildings          = make([dynamic]BuildingTile),
+        win_tiles          = make([dynamic]WinTile),
         player_spawn       = {100, 317},
     }
 
@@ -239,6 +246,9 @@ load_level :: proc(path: string) -> Level {
                     grid_y = i32(row),
                     type   = .Static2,
                 })
+            case 'W':
+                // Win tile (level exit for final level)
+                append(&level.win_tiles, WinTile{x, y, TILE_SIZE, TILE_SIZE})
             }
         }
     }
@@ -279,4 +289,5 @@ unload_level :: proc(level: ^Level) {
     delete(level.moon_tiles)
     delete(level.angry_planet_tiles)
     delete(level.buildings)
+    delete(level.win_tiles)
 }

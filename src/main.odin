@@ -124,6 +124,8 @@ main :: proc() {
     noise_meter: f32 = 0
     game_over := false
     game_over_selection := 0  // 0 = Continue, 1 = Quit
+    game_won := false
+    game_won_selection := 0  // 0 = Play Again, 1 = Quit
     level_complete := false
     current_level := 1
     rock := Rock{}
@@ -176,7 +178,7 @@ main :: proc() {
         update_music()
 
         // Pause toggle
-        if rl.IsKeyPressed(.P) && !game_over {
+        if rl.IsKeyPressed(.P) && !game_over && !game_won {
             pause_menu.is_paused = !pause_menu.is_paused
             pause_menu.selected_index = 0
             pause_level_selection = current_level
@@ -356,6 +358,51 @@ main :: proc() {
             }
         }
 
+        // Game won menu handling
+        if game_won {
+            // Navigation
+            if rl.IsKeyPressed(.W) || rl.IsKeyPressed(.UP) {
+                game_won_selection -= 1
+                if game_won_selection < 0 {
+                    game_won_selection = 1
+                }
+            }
+            if rl.IsKeyPressed(.S) || rl.IsKeyPressed(.DOWN) {
+                game_won_selection += 1
+                if game_won_selection > 1 {
+                    game_won_selection = 0
+                }
+            }
+
+            // Selection
+            if rl.IsKeyPressed(.ENTER) || rl.IsKeyPressed(.SPACE) {
+                if game_won_selection == 0 {
+                    // Play Again - restart from level 1
+                    current_level = 1
+                    unload_level(&level)
+                    level = load_level("assets/maps/level1.txt")
+                    noise_meter = 0
+                    player.x = level.player_spawn.x
+                    player.y = level.player_spawn.y
+                    player.vel_y = 0
+                    player.grounded = true
+                    player.state = .Idle
+                    player.has_rock = false
+                    player.has_instrument = false
+                    player.instrument_cooldown = 0
+                    player.playing_moog = false
+                    rock = Rock{}
+                    tutorial_step = .Intro1
+                    tutorial_active = true
+                    game_won = false
+                    game_won_selection = 0
+                } else {
+                    // Quit
+                    break
+                }
+            }
+        }
+
         // Level transition
         if level_complete {
             current_level += 1
@@ -370,6 +417,14 @@ main :: proc() {
                 level = load_level("assets/maps/level3.txt")
                 tutorial_step = .Level3Intro
                 tutorial_active = true
+            } else if current_level == 4 {
+                level = load_level("assets/maps/level4.txt")
+                tutorial_step = .Complete
+                tutorial_active = false
+            } else if current_level == 5 {
+                level = load_level("assets/maps/level5.txt")
+                tutorial_step = .Complete
+                tutorial_active = false
             } else {
                 current_level = 1
                 level = load_level("assets/maps/level1.txt")
@@ -418,7 +473,7 @@ main :: proc() {
         }
 
         // Game logic
-        if !game_over && !tutorial_active {
+        if !game_over && !game_won && !tutorial_active {
             // Block movement when playing moog
             if !player.playing_moog {
                 if rl.IsKeyDown(.A) {
@@ -575,6 +630,15 @@ main :: proc() {
                 if player.x >= door.x && player.x <= door.x + door.width &&
                    player.y >= door.y && player.y <= door.y + door.height + 8 {
                     level_complete = true
+                    break
+                }
+            }
+
+            // Win tile collision (final level)
+            for win in level.win_tiles {
+                if player.x >= win.x && player.x <= win.x + win.width &&
+                   player.y >= win.y && player.y <= win.y + win.height + 8 {
+                    game_won = true
                     break
                 }
             }
@@ -961,7 +1025,7 @@ main :: proc() {
         }
 
         // Pause hint in upper right corner
-        if !game_over && !pause_menu.is_paused {
+        if !game_over && !game_won && !pause_menu.is_paused {
             draw_pause_hint(game_font)
         }
 
@@ -1080,6 +1144,37 @@ main :: proc() {
                 y := menu_y + f32(i) * menu_spacing
 
                 if i == game_over_selection {
+                    // Selected - highlight with blinking
+                    alpha := u8(180 + 75 * math.sin(arrow_timer * 5.0))
+                    rl.DrawRectangle(i32(x - 10), i32(y - 5), i32(text_size.x + 20), 30, rl.Color{255, 255, 255, 50})
+                    rl.DrawTextEx(game_font, text, {x, y}, 20, 1, rl.Color{255, 255, 0, alpha})
+                } else {
+                    rl.DrawTextEx(game_font, text, {x, y}, 20, 1, rl.GRAY)
+                }
+            }
+        }
+
+        // Game won screen
+        if game_won {
+            rl.DrawRectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, rl.Color{0, 0, 0, 180})
+
+            // Victory message
+            title_text: cstring = "You escaped into the silent night!"
+            title_size := rl.MeasureTextEx(game_font, title_text, 20, 1)
+            rl.DrawTextEx(game_font, title_text, {(GAME_WIDTH - title_size.x) / 2, 130}, 20, 1, rl.GREEN)
+
+            // Menu options
+            options: [2]cstring = {"Play Again", "Quit"}
+            menu_y: f32 = 190
+            menu_spacing: f32 = 35
+
+            for i in 0..<2 {
+                text := options[i]
+                text_size := rl.MeasureTextEx(game_font, text, 20, 1)
+                x := (GAME_WIDTH - text_size.x) / 2
+                y := menu_y + f32(i) * menu_spacing
+
+                if i == game_won_selection {
                     // Selected - highlight with blinking
                     alpha := u8(180 + 75 * math.sin(arrow_timer * 5.0))
                     rl.DrawRectangle(i32(x - 10), i32(y - 5), i32(text_size.x + 20), 30, rl.Color{255, 255, 255, 50})
