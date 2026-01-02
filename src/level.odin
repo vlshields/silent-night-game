@@ -3,26 +3,35 @@ package main
 import rl "vendor:raylib"
 import "core:os"
 import "core:strings"
+import "core:math/rand"
 
 TILE_SIZE :: 16
 
 Level :: struct {
-    grounds:      [dynamic]Ground,
-    ladders:      [dynamic]Ladder,
-    enemies:      [dynamic]Enemy,
-    doors:        [dynamic]Door,
-    traps:        [dynamic]Trap,
-    items:        [dynamic]Item,
-    instruments:  [dynamic]Instrument,
-    moon_tiles:   [dynamic]MoonTile,
-    player_spawn: rl.Vector2,
-    width:        f32,
-    height:       f32,
+    grounds:            [dynamic]Ground,
+    ground_tiles:       [dynamic]GroundTile,
+    ladders:            [dynamic]Ladder,
+    enemies:            [dynamic]Enemy,
+    doors:              [dynamic]Door,
+    traps:              [dynamic]Trap,
+    items:              [dynamic]Item,
+    instruments:        [dynamic]Instrument,
+    moon_tiles:         [dynamic]MoonTile,
+    angry_planet_tiles: [dynamic]AngryPlanetTile,
+    buildings:          [dynamic]BuildingTile,
+    player_spawn:       rl.Vector2,
+    width:              f32,
+    height:             f32,
 }
 
 Ground :: struct {
     x, y:          f32,
     width, height: f32,
+}
+
+GroundTile :: struct {
+    x, y:    f32,
+    variant: i32,  // 0, 1, or 2 for the three textures
 }
 
 Ladder :: struct {
@@ -59,21 +68,49 @@ MoonTile :: struct {
     grid_y:     i32,
 }
 
+AngryPlanetTile :: struct {
+    x, y:       f32,
+    grid_x:     i32,
+    grid_y:     i32,
+}
+
+BuildingType :: enum {
+    Static1,    // B - Parallax_bg_buildting_static.png
+    Static2,    // F - Paralax_building_static_bg2.png
+}
+
+BuildingTile :: struct {
+    x, y:       f32,
+    grid_x:     i32,
+    grid_y:     i32,
+    type:       BuildingType,
+}
+
 load_level :: proc(path: string) -> Level {
     level := Level{
-        grounds      = make([dynamic]Ground),
-        ladders      = make([dynamic]Ladder),
-        enemies      = make([dynamic]Enemy),
-        doors        = make([dynamic]Door),
-        traps        = make([dynamic]Trap),
-        items        = make([dynamic]Item),
-        instruments  = make([dynamic]Instrument),
-        moon_tiles   = make([dynamic]MoonTile),
-        player_spawn = {100, 317},
+        grounds            = make([dynamic]Ground),
+        ground_tiles       = make([dynamic]GroundTile),
+        ladders            = make([dynamic]Ladder),
+        enemies            = make([dynamic]Enemy),
+        doors              = make([dynamic]Door),
+        traps              = make([dynamic]Trap),
+        items              = make([dynamic]Item),
+        instruments        = make([dynamic]Instrument),
+        moon_tiles         = make([dynamic]MoonTile),
+        angry_planet_tiles = make([dynamic]AngryPlanetTile),
+        buildings          = make([dynamic]BuildingTile),
+        player_spawn       = {100, 317},
     }
 
     moon_origin_x: i32 = -1
     moon_origin_y: i32 = -1
+    planet_origin_x: i32 = -1
+    planet_origin_y: i32 = -1
+
+    building_origins: [BuildingType][2]i32 = {
+        .Static1 = {-1, -1},
+        .Static2 = {-1, -1},
+    }
 
     data, ok := os.read_entire_file(path)
     if !ok {
@@ -98,6 +135,13 @@ load_level :: proc(path: string) -> Level {
 
             switch char {
             case '#':
+                // Add individual tile for rendering with random variant
+                append(&level.ground_tiles, GroundTile{
+                    x       = x,
+                    y       = y,
+                    variant = rand.int31_max(3),  // 0, 1, or 2
+                })
+                // Merge adjacent grounds for collision detection
                 merged := false
                 if len(level.grounds) > 0 {
                     last := &level.grounds[len(level.grounds) - 1]
@@ -151,6 +195,50 @@ load_level :: proc(path: string) -> Level {
                     grid_x = i32(col),
                     grid_y = i32(row),
                 })
+            case 'O':
+                // Angry planet (8x8 tiles, 128x128 px)
+                if planet_origin_x < 0 || col < int(planet_origin_x) {
+                    planet_origin_x = i32(col)
+                }
+                if planet_origin_y < 0 || row < int(planet_origin_y) {
+                    planet_origin_y = i32(row)
+                }
+                append(&level.angry_planet_tiles, AngryPlanetTile{
+                    x      = x,
+                    y      = y,
+                    grid_x = i32(col),
+                    grid_y = i32(row),
+                })
+            case 'A', 'B':
+                // Static building 1 (windows)
+                if building_origins[.Static1][0] < 0 || col < int(building_origins[.Static1][0]) {
+                    building_origins[.Static1][0] = i32(col)
+                }
+                if building_origins[.Static1][1] < 0 || row < int(building_origins[.Static1][1]) {
+                    building_origins[.Static1][1] = i32(row)
+                }
+                append(&level.buildings, BuildingTile{
+                    x      = x,
+                    y      = y,
+                    grid_x = i32(col),
+                    grid_y = i32(row),
+                    type   = .Static1,
+                })
+            case 'F':
+                // Static building 2 (cityscape)
+                if building_origins[.Static2][0] < 0 || col < int(building_origins[.Static2][0]) {
+                    building_origins[.Static2][0] = i32(col)
+                }
+                if building_origins[.Static2][1] < 0 || row < int(building_origins[.Static2][1]) {
+                    building_origins[.Static2][1] = i32(row)
+                }
+                append(&level.buildings, BuildingTile{
+                    x      = x,
+                    y      = y,
+                    grid_x = i32(col),
+                    grid_y = i32(row),
+                    type   = .Static2,
+                })
             }
         }
     }
@@ -163,11 +251,25 @@ load_level :: proc(path: string) -> Level {
         moon.grid_y = moon.grid_y - moon_origin_y
     }
 
+    for &planet in level.angry_planet_tiles {
+        planet.grid_x = planet.grid_x - planet_origin_x
+        planet.grid_y = planet.grid_y - planet_origin_y
+    }
+
+    for &building in level.buildings {
+        origin := building_origins[building.type]
+        if origin[0] >= 0 {
+            building.grid_x = building.grid_x - origin[0]
+            building.grid_y = building.grid_y - origin[1]
+        }
+    }
+
     return level
 }
 
 unload_level :: proc(level: ^Level) {
     delete(level.grounds)
+    delete(level.ground_tiles)
     delete(level.ladders)
     delete(level.enemies)
     delete(level.doors)
@@ -175,4 +277,6 @@ unload_level :: proc(level: ^Level) {
     delete(level.items)
     delete(level.instruments)
     delete(level.moon_tiles)
+    delete(level.angry_planet_tiles)
+    delete(level.buildings)
 }

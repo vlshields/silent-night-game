@@ -71,6 +71,26 @@ main :: proc() {
     moon_texture := rl.LoadTexture("assets/sprites/Evil_moon_bg.png")
     defer rl.UnloadTexture(moon_texture)
 
+    angry_planet_texture := rl.LoadTexture("assets/sprites/parallax_bg_angry_planet.png")
+    defer rl.UnloadTexture(angry_planet_texture)
+
+    // Parallax building textures
+    building_static1_texture := rl.LoadTexture("assets/sprites/Parallax_bg_buildting_static.png")
+    defer rl.UnloadTexture(building_static1_texture)
+
+    building_static2_texture := rl.LoadTexture("assets/sprites/Paralax_building_static_bg2.png")
+    defer rl.UnloadTexture(building_static2_texture)
+
+    // Ground tile textures
+    ground_textures: [3]rl.Texture2D = {
+        rl.LoadTexture("assets/sprites/ground_tile1.png"),
+        rl.LoadTexture("assets/sprites/ground_tile2.png"),
+        rl.LoadTexture("assets/sprites/ground_tile3.png"),
+    }
+    defer for tex in ground_textures {
+        rl.UnloadTexture(tex)
+    }
+
     // Load level
     level := load_level("assets/maps/level1.txt")
     defer unload_level(&level)
@@ -618,9 +638,30 @@ main :: proc() {
             rl.DrawTexturePro(moon_texture, moon_source, moon_dest, rl.Vector2{0, 0}, 0, rl.WHITE)
         }
 
+        // Draw angry planet (same parallax as moon)
+        for planet in level.angry_planet_tiles {
+            parallax_x := planet.x - camera_offset_x * (1 - MOON_PARALLAX)
+            parallax_y := planet.y - camera_offset_y * (1 - MOON_PARALLAX)
+
+            planet_source := rl.Rectangle{
+                x      = f32(planet.grid_x * TILE_SIZE),
+                y      = f32(planet.grid_y * TILE_SIZE),
+                width  = TILE_SIZE,
+                height = TILE_SIZE,
+            }
+            planet_dest := rl.Rectangle{
+                x      = parallax_x,
+                y      = parallax_y,
+                width  = TILE_SIZE,
+                height = TILE_SIZE,
+            }
+            rl.DrawTexturePro(angry_planet_texture, planet_source, planet_dest, rl.Vector2{0, 0}, 0, rl.WHITE)
+        }
+
+        
         // Draw grounds
-        for ground in level.grounds {
-            rl.DrawRectangle(i32(ground.x), i32(ground.y), i32(ground.width), i32(ground.height), rl.GRAY)
+        for tile in level.ground_tiles {
+            rl.DrawTexture(ground_textures[tile.variant], i32(tile.x), i32(tile.y), rl.WHITE)
         }
 
         // Draw ladders
