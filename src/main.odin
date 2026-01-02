@@ -81,6 +81,9 @@ main :: proc() {
     building_static2_texture := rl.LoadTexture("assets/sprites/Paralax_building_static_bg2.png")
     defer rl.UnloadTexture(building_static2_texture)
 
+    moog_texture := rl.LoadTexture("assets/sprites/mighty_moog.png")
+    defer rl.UnloadTexture(moog_texture)
+
     // Ground tile textures
     ground_textures: [3]rl.Texture2D = {
         rl.LoadTexture("assets/sprites/ground_tile1.png"),
@@ -179,6 +182,9 @@ main :: proc() {
                 tutorial_step = .Complete
                 tutorial_active = false
             case .Level3Intro:
+                tutorial_step = .Complete
+                tutorial_active = false
+            case .MoogPickup:
                 tutorial_step = .Complete
                 tutorial_active = false
             case .WaitForClimb, .WaitForTrapPass, .WaitForPickup, .Complete:
@@ -420,6 +426,8 @@ main :: proc() {
                        player.y >= instrument.y && player.y <= instrument.y + instrument.height {
                         instrument.collected = true
                         player.has_instrument = true
+                        tutorial_step = .MoogPickup
+                        tutorial_active = true
                     }
                 }
             }
@@ -691,11 +699,10 @@ main :: proc() {
             }
         }
 
-        // Draw instruments
+        // Draw instruments (Mighty Moog)
         for instrument in level.instruments {
             if !instrument.collected {
-                rl.DrawRectangle(i32(instrument.x), i32(instrument.y), i32(instrument.width), i32(instrument.height), rl.GOLD)
-                rl.DrawText("G", i32(instrument.x) + 4, i32(instrument.y) + 2, 10, rl.BLACK)
+                rl.DrawTexture(moog_texture, i32(instrument.x), i32(instrument.y), rl.WHITE)
             }
         }
 
@@ -878,6 +885,8 @@ main :: proc() {
                     dialogue_text = TUTORIAL_THROW
                 case .Level3Intro:
                     dialogue_text = TUTORIAL_LEVEL3
+                case .MoogPickup:
+                    dialogue_text = TUTORIAL_MOOG_PICKUP
                 case .WaitForClimb, .WaitForTrapPass, .WaitForPickup, .Complete:
                     // No dialogue
                 }

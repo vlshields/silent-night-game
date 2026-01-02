@@ -1,7 +1,7 @@
 
 Noise n => BPF bpf => ADSR env => JCRev j => Gain g => dac => WvOut wav => blackhole;
 0.25 => j.mix;
-0.15 => g.gain;
+0.75 => g.gain;
 8 => bpf.Q;
 for (0 => int i; i < 5; i++) {
     

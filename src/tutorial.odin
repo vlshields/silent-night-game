@@ -14,6 +14,7 @@ TutorialStep :: enum {
     WaitForPickup,
     ThrowInfo,
     Level3Intro,
+    MoogPickup,
     Complete,
 }
 
@@ -36,3 +37,5 @@ TUTORIAL_ROCK2 :: "But if you miss, you will make a lot of noise!\nMake sure you
 TUTORIAL_THROW :: "Left click in the direction of the guard\nto throw the rock at them."
 
 TUTORIAL_LEVEL3 :: "The legendary Moog is close by, you must find it!"
+
+TUTORIAL_MOOG_PICKUP :: "You have recovered the Mighty Mighty Moog!\nUse its powers with [E]. Now you must escape!"

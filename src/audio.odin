@@ -11,6 +11,7 @@ footstep_timer: f32 = 0
 
 jump_sound: rl.Sound
 land_sound: rl.Sound
+trap_sound: rl.Sound
 
 bg_music: rl.Music
 
@@ -22,6 +23,7 @@ init_audio :: proc() {
     }
     jump_sound = rl.LoadSound("audio_engine/jump.wav")
     land_sound = rl.LoadSound("audio_engine/land.wav")
+    trap_sound = rl.LoadSound("audio_engine/trap_sound.wav")
 
     bg_music = rl.LoadMusicStream("audio_engine/background_music.wav")
     bg_music.looping = true
@@ -34,6 +36,7 @@ cleanup_audio :: proc() {
     }
     rl.UnloadSound(jump_sound)
     rl.UnloadSound(land_sound)
+    rl.UnloadSound(trap_sound)
     rl.UnloadMusicStream(bg_music)
     rl.CloseAudioDevice()
 }
@@ -65,4 +68,8 @@ play_jump :: proc() {
 
 play_land :: proc() {
     rl.PlaySound(land_sound)
+}
+
+play_trap :: proc() {
+    rl.PlaySound(trap_sound)
 }

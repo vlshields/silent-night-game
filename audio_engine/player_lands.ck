@@ -4,10 +4,10 @@ Noise n => ResonZ f => ADSR e => mix;
 "land.wav" => wav.wavFilename;
 
 // Triosc thud
-900 => lpf.freq;
+100 => lpf.freq;
 15 => lpf.Q;
 180 => tri.freq;
-0.15 => g.gain;
+0.65 => g.gain;
 env.set(0.1::ms, 40::ms, 0.0, 20::ms);
 
 // Gravel/sand noise click
@@ -22,7 +22,7 @@ e.keyOn();
 
 
 
-// pitch drop for impact feel
+
 
 
 
