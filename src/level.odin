@@ -20,6 +20,7 @@ Level :: struct {
     angry_planet_tiles: [dynamic]AngryPlanetTile,
     buildings:          [dynamic]BuildingTile,
     win_tiles:          [dynamic]WinTile,
+    npcs:               [dynamic]NPC,
     player_spawn:       rl.Vector2,
     width:              f32,
     height:             f32,
@@ -92,6 +93,14 @@ WinTile :: struct {
     width, height: f32,
 }
 
+NPC :: struct {
+    x, y:          f32,
+    width, height: f32,
+    talked:        bool,
+    current_frame: i32,
+    frame_timer:   f32,
+}
+
 load_level :: proc(path: string) -> Level {
     level := Level{
         grounds            = make([dynamic]Ground),
@@ -106,6 +115,7 @@ load_level :: proc(path: string) -> Level {
         angry_planet_tiles = make([dynamic]AngryPlanetTile),
         buildings          = make([dynamic]BuildingTile),
         win_tiles          = make([dynamic]WinTile),
+        npcs               = make([dynamic]NPC),
         player_spawn       = {100, 317},
     }
 
@@ -249,6 +259,9 @@ load_level :: proc(path: string) -> Level {
             case 'W':
                 // Win tile (level exit for final level)
                 append(&level.win_tiles, WinTile{x, y, TILE_SIZE, TILE_SIZE})
+            case 'N':
+                // NPC (old man in final level)
+                append(&level.npcs, NPC{x, y, TILE_SIZE, TILE_SIZE, false, 0, 0})
             }
         }
     }
@@ -290,4 +303,5 @@ unload_level :: proc(level: ^Level) {
     delete(level.angry_planet_tiles)
     delete(level.buildings)
     delete(level.win_tiles)
+    delete(level.npcs)
 }

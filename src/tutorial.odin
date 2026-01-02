@@ -39,3 +39,8 @@ TUTORIAL_THROW :: "Left click in the direction of the guard\nto throw the rock a
 TUTORIAL_LEVEL3 :: "The legendary Moog is close by, you must find it!"
 
 TUTORIAL_MOOG_PICKUP :: "You have recovered the Mighty Mighty Moog!\nUse its powers with [E]. Now you must escape!"
+
+// Final cutscene NPC dialogue
+NPC_DIALOGUE_1 :: "You have done it! With the Magic of the Mighty Moog,\nwe can finally free ourselves from the nefarious Vibratti."
+
+NPC_DIALOGUE_2 :: "Hurry, place the sacred artifact on the alter behind me!"

@@ -91,6 +91,13 @@ main :: proc() {
     moog_texture := rl.LoadTexture("assets/sprites/mighty_moog.png")
     defer rl.UnloadTexture(moog_texture)
 
+    npc_anim := Animation{
+        texture     = rl.LoadTexture("assets/sprites/old_man_talking.png"),
+        frame_count = 4,
+        frame_time  = 0.15,
+    }
+    defer rl.UnloadTexture(npc_anim.texture)
+
     // Ground tile textures
     ground_textures: [3]rl.Texture2D = {
         rl.LoadTexture("assets/sprites/ground_tile1.png"),
@@ -129,6 +136,10 @@ main :: proc() {
     level_complete := false
     current_level := 1
     rock := Rock{}
+
+    // NPC dialogue state
+    npc_dialogue_active := false
+    npc_dialogue_step := 0  // 0 = first line, 1 = second line
 
     // Pause menu state
     pause_menu := init_pause_menu()
@@ -303,6 +314,19 @@ main :: proc() {
             }
         }
 
+        // NPC dialogue input handling
+        if npc_dialogue_active && rl.IsKeyPressed(.ENTER) {
+            if npc_dialogue_step == 0 {
+                npc_dialogue_step = 1
+            } else {
+                npc_dialogue_active = false
+                // Mark NPC as talked to
+                for &npc in level.npcs {
+                    npc.talked = true
+                }
+            }
+        }
+
         // Game over menu handling
         if game_over {
             // Navigation
@@ -330,7 +354,10 @@ main :: proc() {
                     player.grounded = true
                     player.state = .Idle
                     player.has_rock = false
-                    player.has_instrument = false
+                    // Moog persists on level 4+ (picked up in level 3)
+                    if current_level < 4 {
+                        player.has_instrument = false
+                    }
                     player.instrument_cooldown = 0
                     player.playing_moog = false
                     rock = Rock{}
@@ -436,8 +463,7 @@ main :: proc() {
             player.grounded = true
             player.state = .Idle
             player.has_rock = false
-            player.has_instrument = false
-            player.instrument_cooldown = 0
+            // Note: Moog (has_instrument) persists across levels once picked up
             player.playing_moog = false
             rock = Rock{}
             noise_meter = 0
@@ -473,7 +499,7 @@ main :: proc() {
         }
 
         // Game logic
-        if !game_over && !game_won && !tutorial_active {
+        if !game_over && !game_won && !tutorial_active && !npc_dialogue_active {
             // Block movement when playing moog
             if !player.playing_moog {
                 if rl.IsKeyDown(.A) {
@@ -619,6 +645,7 @@ main :: proc() {
                        player.y >= instrument.y && player.y <= instrument.y + instrument.height {
                         instrument.collected = true
                         player.has_instrument = true
+                        play_moog_pickup()
                         tutorial_step = .MoogPickup
                         tutorial_active = true
                     }
@@ -631,6 +658,29 @@ main :: proc() {
                    player.y >= door.y && player.y <= door.y + door.height + 8 {
                     level_complete = true
                     break
+                }
+            }
+
+            // NPC proximity check
+            for &npc in level.npcs {
+                if !npc.talked {
+                    // Check if player is near NPC (within 24 pixels)
+                    dx := player.x - (npc.x + npc.width / 2)
+                    dy := player.y - (npc.y + npc.height / 2)
+                    distance := rl.Vector2Length(rl.Vector2{dx, dy})
+                    if distance <= 24.0 {
+                        npc_dialogue_active = true
+                        npc_dialogue_step = 0
+                    }
+                }
+            }
+
+            // NPC animation update
+            for &npc in level.npcs {
+                npc.frame_timer += dt
+                if npc.frame_timer >= npc_anim.frame_time {
+                    npc.frame_timer = 0
+                    npc.current_frame = (npc.current_frame + 1) % npc_anim.frame_count
                 }
             }
 
@@ -653,6 +703,7 @@ main :: proc() {
                 rock.vel_y = 0
                 player.has_rock = false
                 noise_meter += 5
+                play_rock_throw()
             }
 
             // Instrument use
@@ -698,6 +749,7 @@ main :: proc() {
                         enemy.frame_timer = 0
                         rock.active = false
                         hit_enemy = true
+                        play_rock_collision()
                         break
                     }
                 }
@@ -918,7 +970,39 @@ main :: proc() {
             if !instrument.collected {
                 float_offset := math.sin(moog_float_timer * 2.0) * 3.0  // Float up and down 3 pixels
                 rl.DrawTexture(moog_texture, i32(instrument.x), i32(instrument.y + float_offset), rl.WHITE)
+
+                // Draw flashing yellow arrow above moog in level 3
+                if current_level == 3 {
+                    arrow_x := instrument.x + instrument.width / 2
+                    arrow_y := instrument.y - 12 + float_offset
+                    alpha := u8(150 + 100 * math.sin(arrow_timer * 5.0))
+                    arrow_color := rl.Color{255, 255, 0, alpha}
+
+                    rl.DrawTriangle(
+                        rl.Vector2{arrow_x, arrow_y + 10},
+                        rl.Vector2{arrow_x + 6, arrow_y},
+                        rl.Vector2{arrow_x - 6, arrow_y},
+                        arrow_color,
+                    )
+                }
             }
+        }
+
+        // Draw NPCs
+        for npc in level.npcs {
+            npc_source := rl.Rectangle{
+                x      = f32(npc.current_frame * FRAME_SIZE),
+                y      = 0,
+                width  = FRAME_SIZE,
+                height = FRAME_SIZE,
+            }
+            npc_dest := rl.Rectangle{
+                x      = npc.x,
+                y      = npc.y,
+                width  = FRAME_SIZE,
+                height = FRAME_SIZE,
+            }
+            rl.DrawTexturePro(npc_anim.texture, npc_source, npc_dest, rl.Vector2{0, 0}, 0, rl.WHITE)
         }
 
         // Draw player
@@ -991,7 +1075,7 @@ main :: proc() {
         for enemy in level.enemies {
             if enemy.stun_timer > 0 {
                 stun_text := rl.TextFormat("Guard Stunned %.0fs", enemy.stun_timer)
-                rl.DrawTextEx(game_font, stun_text, {METER_X + METER_WIDTH + 10, METER_Y}, 20, 1, rl.SKYBLUE)
+                rl.DrawTextEx(game_font, stun_text, {METER_X, METER_Y + METER_HEIGHT + 22}, 20, 1, rl.SKYBLUE)
                 break
             }
         }
@@ -1002,7 +1086,7 @@ main :: proc() {
         }
 
         if player.has_instrument {
-            inst_x: i32 = 170
+            inst_x: i32 = 115
             // Draw shrunk moog icon
             moog_icon_source := rl.Rectangle{0, 0, f32(moog_texture.width), f32(moog_texture.height)}
             moog_icon_dest := rl.Rectangle{f32(inst_x), 6, 14, 14}
@@ -1017,11 +1101,15 @@ main :: proc() {
             }
         }
 
-        // Goal text for level 1
-        if current_level == 1 {
-            goal_text : cstring = "Goal: Locate the exit!"
+        // Goal text for levels
+        if current_level == 1 || current_level == 2 {
+            goal_text : cstring = "Goal: Find the Exit!"
             text_size := rl.MeasureTextEx(game_font, goal_text, 20, 1)
-            rl.DrawTextEx(game_font, goal_text, {(GAME_WIDTH - text_size.x) / 2, 8}, 20, 1, rl.YELLOW)
+            rl.DrawTextEx(game_font, goal_text, {(GAME_WIDTH - text_size.x) / 2, 8}, 20, 1, rl.GOLD)
+        } else if current_level == 3 {
+            goal_text : cstring = "Goal: Locate the Moog" if !player.has_instrument else "Goal: Escape with the Moog!"
+            text_size := rl.MeasureTextEx(game_font, goal_text, 20, 1)
+            rl.DrawTextEx(game_font, goal_text, {(GAME_WIDTH - text_size.x) / 2, 8}, 20, 1, rl.GOLD)
         }
 
         // Pause hint in upper right corner
@@ -1123,6 +1211,18 @@ main :: proc() {
             }
         }
 
+        // NPC dialogue overlay
+        if npc_dialogue_active {
+            rl.DrawRectangle(40, 220, 560, 120, rl.Color{0, 0, 0, 200})
+            rl.DrawRectangleLines(40, 220, 560, 120, rl.WHITE)
+
+            npc_text: cstring = NPC_DIALOGUE_1 if npc_dialogue_step == 0 else NPC_DIALOGUE_2
+            rl.DrawTextEx(game_font, npc_text, {55, 235}, 20, 1, rl.WHITE)
+
+            prompt_alpha := u8(150 + 100 * math.sin(arrow_timer * 3.0))
+            rl.DrawTextEx(game_font, "Press Enter", {270, 315}, 20, 1, rl.Color{255, 255, 255, prompt_alpha})
+        }
+
         // Game over screen
         if game_over {
             rl.DrawRectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, rl.Color{0, 0, 0, 180})
@@ -1159,7 +1259,7 @@ main :: proc() {
             rl.DrawRectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, rl.Color{0, 0, 0, 180})
 
             // Victory message
-            title_text: cstring = "You escaped into the silent night!"
+            title_text: cstring = "Congratulations, you have broken the Silence"
             title_size := rl.MeasureTextEx(game_font, title_text, 20, 1)
             rl.DrawTextEx(game_font, title_text, {(GAME_WIDTH - title_size.x) / 2, 130}, 20, 1, rl.GREEN)
 

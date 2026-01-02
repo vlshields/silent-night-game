@@ -13,6 +13,9 @@ jump_sound: rl.Sound
 land_sound: rl.Sound
 trap_sound: rl.Sound
 moog_sound: rl.Sound
+moog_pickup_sound: rl.Sound
+rock_throw_sound: rl.Sound
+rock_collision_sound: rl.Sound
 
 bg_music: rl.Music
 
@@ -26,6 +29,9 @@ init_audio :: proc() {
     land_sound = rl.LoadSound("audio_engine/land.wav")
     trap_sound = rl.LoadSound("audio_engine/trap_sound.wav")
     moog_sound = rl.LoadSound("audio_engine/mighty_moog.wav")
+    moog_pickup_sound = rl.LoadSound("audio_engine/moog_pickup.wav")
+    rock_throw_sound = rl.LoadSound("audio_engine/player_throws_rock.wav")
+    rock_collision_sound = rl.LoadSound("audio_engine/rock_enemy_colision.wav")
 
     bg_music = rl.LoadMusicStream("audio_engine/background_music.wav")
     bg_music.looping = true
@@ -40,6 +46,9 @@ cleanup_audio :: proc() {
     rl.UnloadSound(land_sound)
     rl.UnloadSound(trap_sound)
     rl.UnloadSound(moog_sound)
+    rl.UnloadSound(moog_pickup_sound)
+    rl.UnloadSound(rock_throw_sound)
+    rl.UnloadSound(rock_collision_sound)
     rl.UnloadMusicStream(bg_music)
     rl.CloseAudioDevice()
 }
@@ -83,4 +92,16 @@ play_moog :: proc() {
 
 is_moog_playing :: proc() -> bool {
     return rl.IsSoundPlaying(moog_sound)
+}
+
+play_moog_pickup :: proc() {
+    rl.PlaySound(moog_pickup_sound)
+}
+
+play_rock_throw :: proc() {
+    rl.PlaySound(rock_throw_sound)
+}
+
+play_rock_collision :: proc() {
+    rl.PlaySound(rock_collision_sound)
 }
