@@ -656,7 +656,7 @@ main :: proc() {
             }
 
             // Instrument use
-            if player.has_instrument && player.instrument_cooldown <= 0 && !player.playing_moog && rl.IsKeyPressed(.E) {
+            if player.has_instrument && player.instrument_cooldown <= 0 && !player.playing_moog && !on_ladder && rl.IsKeyPressed(.E) {
                 player.playing_moog = true
                 play_moog()
             }
@@ -745,7 +745,7 @@ main :: proc() {
             noise_meter = clamp(noise_meter, 0, 100)
 
             // Update footstep sounds
-            update_footsteps(moving, player.grounded, dt)
+            update_footsteps(moving || climbing, player.grounded || climbing, dt)
 
             if noise_meter >= 100 {
                 game_over = true
