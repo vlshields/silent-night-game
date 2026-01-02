@@ -18,6 +18,7 @@ Player :: struct {
     has_rock:             bool,
     has_instrument:       bool,
     instrument_cooldown:  f32,
+    playing_moog:         bool,
 }
 
 Rock :: struct {

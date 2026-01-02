@@ -120,6 +120,7 @@ main :: proc() {
     tutorial_step := TutorialStep.Intro1
     tutorial_active := true
     arrow_timer: f32 = 0
+    moog_float_timer: f32 = 0
     first_ladder_x: f32 = 0
     first_ladder_top: f32 = 999999
     item_pos := rl.Vector2{0, 0}
@@ -154,6 +155,7 @@ main :: proc() {
     for !rl.WindowShouldClose() {
         dt := rl.GetFrameTime()
         arrow_timer += dt
+        moog_float_timer += dt
         update_music()
 
         // Tutorial input handling
@@ -203,6 +205,7 @@ main :: proc() {
             player.has_rock = false
             player.has_instrument = false
             player.instrument_cooldown = 0
+            player.playing_moog = false
             rock = Rock{}
             for &enemy in level.enemies {
                 enemy.x = enemy.start_x
@@ -249,6 +252,7 @@ main :: proc() {
             player.has_rock = false
             player.has_instrument = false
             player.instrument_cooldown = 0
+            player.playing_moog = false
             rock = Rock{}
             noise_meter = 0
 
@@ -284,38 +288,41 @@ main :: proc() {
 
         // Game logic
         if !game_over && !tutorial_active {
-            if rl.IsKeyDown(.A) {
-                player.x -= PLAYER_SPEED * dt
-                player.facing_left = true
-                moving = true
-            }
-            if rl.IsKeyDown(.D) {
-                player.x += PLAYER_SPEED * dt
-                player.facing_left = false
-                moving = true
-            }
+            // Block movement when playing moog
+            if !player.playing_moog {
+                if rl.IsKeyDown(.A) {
+                    player.x -= PLAYER_SPEED * dt
+                    player.facing_left = true
+                    moving = true
+                }
+                if rl.IsKeyDown(.D) {
+                    player.x += PLAYER_SPEED * dt
+                    player.facing_left = false
+                    moving = true
+                }
 
-            if on_ladder {
-                if rl.IsKeyDown(.W) {
-                    player.y -= PLAYER_SPEED * 0.5 * dt
-                    player.vel_y = 0
-                    climbing = true
+                if on_ladder {
+                    if rl.IsKeyDown(.W) {
+                        player.y -= PLAYER_SPEED * 0.5 * dt
+                        player.vel_y = 0
+                        climbing = true
+                    }
+                    if rl.IsKeyDown(.S) {
+                        player.y += PLAYER_SPEED * 0.5 * dt
+                        player.vel_y = 0
+                        climbing = true
+                    }
+                    if climbing {
+                        noise_meter += 8.0 * dt
+                    }
                 }
-                if rl.IsKeyDown(.S) {
-                    player.y += PLAYER_SPEED * 0.5 * dt
-                    player.vel_y = 0
-                    climbing = true
-                }
-                if climbing {
-                    noise_meter += 8.0 * dt
-                }
-            }
 
-            if rl.IsKeyPressed(.SPACE) && player.grounded && !on_ladder {
-                player.vel_y = -JUMP_FORCE
-                player.grounded = false
-                noise_meter += 5
-                play_jump()
+                if rl.IsKeyPressed(.SPACE) && player.grounded && !on_ladder {
+                    player.vel_y = -JUMP_FORCE
+                    player.grounded = false
+                    noise_meter += 5
+                    play_jump()
+                }
             }
 
             was_airborne := !player.grounded
@@ -454,7 +461,14 @@ main :: proc() {
             }
 
             // Instrument use
-            if player.has_instrument && player.instrument_cooldown <= 0 && rl.IsKeyPressed(.E) {
+            if player.has_instrument && player.instrument_cooldown <= 0 && !player.playing_moog && rl.IsKeyPressed(.E) {
+                player.playing_moog = true
+                play_moog()
+            }
+
+            // Check if moog tune finished - then apply stun
+            if player.playing_moog && !is_moog_playing() {
+                player.playing_moog = false
                 for &enemy in level.enemies {
                     enemy.stun_timer = INSTRUMENT_STUN
                     enemy.current_frame = 0
@@ -699,10 +713,11 @@ main :: proc() {
             }
         }
 
-        // Draw instruments (Mighty Moog)
+        // Draw instruments (Mighty Moog) with floating animation
         for instrument in level.instruments {
             if !instrument.collected {
-                rl.DrawTexture(moog_texture, i32(instrument.x), i32(instrument.y), rl.WHITE)
+                float_offset := math.sin(moog_float_timer * 2.0) * 3.0  // Float up and down 3 pixels
+                rl.DrawTexture(moog_texture, i32(instrument.x), i32(instrument.y + float_offset), rl.WHITE)
             }
         }
 
@@ -788,12 +803,17 @@ main :: proc() {
 
         if player.has_instrument {
             inst_x: i32 = 170
-            rl.DrawRectangle(inst_x, 10, 12, 12, rl.GOLD)
-            if player.instrument_cooldown > 0 {
+            // Draw shrunk moog icon
+            moog_icon_source := rl.Rectangle{0, 0, f32(moog_texture.width), f32(moog_texture.height)}
+            moog_icon_dest := rl.Rectangle{f32(inst_x), 6, 14, 14}
+            rl.DrawTexturePro(moog_texture, moog_icon_source, moog_icon_dest, rl.Vector2{0, 0}, 0, rl.WHITE)
+            if player.playing_moog {
+                rl.DrawText("...", inst_x + 18, 10, 10, rl.GOLD)
+            } else if player.instrument_cooldown > 0 {
                 cooldown_text := rl.TextFormat("%.0fs", player.instrument_cooldown)
-                rl.DrawText(cooldown_text, inst_x + 16, 10, 10, rl.GRAY)
+                rl.DrawText(cooldown_text, inst_x + 18, 10, 10, rl.GRAY)
             } else {
-                rl.DrawText("[E]", inst_x + 16, 10, 10, rl.WHITE)
+                rl.DrawText("[E]", inst_x + 18, 10, 10, rl.WHITE)
             }
         }
 
