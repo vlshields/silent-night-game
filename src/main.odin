@@ -116,6 +116,7 @@ main :: proc() {
     // Game state
     noise_meter: f32 = 0
     game_over := false
+    game_over_selection := 0  // 0 = Continue, 1 = Quit
     level_complete := false
     current_level := 1
     rock := Rock{}
@@ -293,35 +294,59 @@ main :: proc() {
             }
         }
 
-        // Restart handling
-        if game_over && rl.IsKeyPressed(.R) {
-            noise_meter = 0
-            player.x = level.player_spawn.x
-            player.y = level.player_spawn.y
-            player.vel_y = 0
-            player.grounded = true
-            player.state = .Idle
-            player.has_rock = false
-            player.has_instrument = false
-            player.instrument_cooldown = 0
-            player.playing_moog = false
-            rock = Rock{}
-            for &enemy in level.enemies {
-                enemy.x = enemy.start_x
-                enemy.stun_timer = 0
-                enemy.current_frame = 0
-                enemy.frame_timer = 0
+        // Game over menu handling
+        if game_over {
+            // Navigation
+            if rl.IsKeyPressed(.W) || rl.IsKeyPressed(.UP) {
+                game_over_selection -= 1
+                if game_over_selection < 0 {
+                    game_over_selection = 1
+                }
             }
-            for &trap in level.traps {
-                trap.triggered = false
+            if rl.IsKeyPressed(.S) || rl.IsKeyPressed(.DOWN) {
+                game_over_selection += 1
+                if game_over_selection > 1 {
+                    game_over_selection = 0
+                }
             }
-            for &item in level.items {
-                item.collected = false
+
+            // Selection
+            if rl.IsKeyPressed(.ENTER) || rl.IsKeyPressed(.SPACE) {
+                if game_over_selection == 0 {
+                    // Continue - restart level
+                    noise_meter = 0
+                    player.x = level.player_spawn.x
+                    player.y = level.player_spawn.y
+                    player.vel_y = 0
+                    player.grounded = true
+                    player.state = .Idle
+                    player.has_rock = false
+                    player.has_instrument = false
+                    player.instrument_cooldown = 0
+                    player.playing_moog = false
+                    rock = Rock{}
+                    for &enemy in level.enemies {
+                        enemy.x = enemy.start_x
+                        enemy.stun_timer = 0
+                        enemy.current_frame = 0
+                        enemy.frame_timer = 0
+                    }
+                    for &trap in level.traps {
+                        trap.triggered = false
+                    }
+                    for &item in level.items {
+                        item.collected = false
+                    }
+                    for &instrument in level.instruments {
+                        instrument.collected = false
+                    }
+                    game_over = false
+                    game_over_selection = 0
+                } else {
+                    // Quit
+                    break
+                }
             }
-            for &instrument in level.instruments {
-                instrument.collected = false
-            }
-            game_over = false
         }
 
         // Level transition
@@ -1026,8 +1051,32 @@ main :: proc() {
         // Game over screen
         if game_over {
             rl.DrawRectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, rl.Color{0, 0, 0, 180})
-            rl.DrawTextEx(game_font, "GAME OVER", {220, 150}, 20, 1, rl.RED)
-            rl.DrawTextEx(game_font, "Press R to restart", {240, 200}, 20, 1, rl.WHITE)
+
+            // Title message
+            title_text: cstring = "You were not silent enough..."
+            title_size := rl.MeasureTextEx(game_font, title_text, 20, 1)
+            rl.DrawTextEx(game_font, title_text, {(GAME_WIDTH - title_size.x) / 2, 130}, 20, 1, rl.RED)
+
+            // Menu options
+            options: [2]cstring = {"Continue?", "Quit"}
+            menu_y: f32 = 190
+            menu_spacing: f32 = 35
+
+            for i in 0..<2 {
+                text := options[i]
+                text_size := rl.MeasureTextEx(game_font, text, 20, 1)
+                x := (GAME_WIDTH - text_size.x) / 2
+                y := menu_y + f32(i) * menu_spacing
+
+                if i == game_over_selection {
+                    // Selected - highlight with blinking
+                    alpha := u8(180 + 75 * math.sin(arrow_timer * 5.0))
+                    rl.DrawRectangle(i32(x - 10), i32(y - 5), i32(text_size.x + 20), 30, rl.Color{255, 255, 255, 50})
+                    rl.DrawTextEx(game_font, text, {x, y}, 20, 1, rl.Color{255, 255, 0, alpha})
+                } else {
+                    rl.DrawTextEx(game_font, text, {x, y}, 20, 1, rl.GRAY)
+                }
+            }
         }
 
         // Pause menu overlay
