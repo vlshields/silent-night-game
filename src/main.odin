@@ -94,6 +94,10 @@ main :: proc() {
         rl.UnloadTexture(tex)
     }
 
+    // Load custom font at native size for crisp rendering
+    game_font := rl.LoadFontEx("assets/fonts/OpenDyslexic-Bold.otf", 20, nil, 0)
+    defer rl.UnloadFont(game_font)
+
     // Load level
     level := load_level("assets/maps/level1.txt")
     defer unload_level(&level)
@@ -115,6 +119,11 @@ main :: proc() {
     level_complete := false
     current_level := 1
     rock := Rock{}
+
+    // Pause menu state
+    pause_menu := init_pause_menu()
+    pause_level_selection := current_level
+    tutorial_enabled := true
 
     // Tutorial state
     tutorial_step := TutorialStep.Intro1
@@ -157,6 +166,96 @@ main :: proc() {
         arrow_timer += dt
         moog_float_timer += dt
         update_music()
+
+        // Pause toggle
+        if rl.IsKeyPressed(.P) && !game_over {
+            pause_menu.is_paused = !pause_menu.is_paused
+            pause_menu.selected_index = 0
+            pause_level_selection = current_level
+        }
+
+        // Handle pause menu
+        if pause_menu.is_paused {
+            result := update_pause_menu(&pause_menu, &tutorial_enabled, dt)
+
+            // Handle level selection change while in menu
+            if pause_menu.selected_index == 2 {
+                pause_level_selection = get_pause_level_selection(pause_level_selection)
+            }
+
+            // Confirm level selection with Enter on level option
+            if pause_menu.selected_index == 2 && (rl.IsKeyPressed(.ENTER) || rl.IsKeyPressed(.SPACE)) {
+                if pause_level_selection != current_level {
+                    // Load selected level
+                    unload_level(&level)
+                    current_level = pause_level_selection
+                    if current_level == 1 {
+                        level = load_level("assets/maps/level1.txt")
+                    } else if current_level == 2 {
+                        level = load_level("assets/maps/level2.txt")
+                    } else if current_level == 3 {
+                        level = load_level("assets/maps/level3.txt")
+                    }
+
+                    // Reset player and game state
+                    player.x = level.player_spawn.x
+                    player.y = level.player_spawn.y
+                    player.vel_y = 0
+                    player.grounded = true
+                    player.state = .Idle
+                    player.has_rock = false
+                    player.has_instrument = false
+                    player.instrument_cooldown = 0
+                    player.playing_moog = false
+                    rock = Rock{}
+                    noise_meter = 0
+                    game_over = false
+
+                    // Reset tutorial based on enabled flag
+                    if tutorial_enabled && current_level == 1 {
+                        tutorial_step = .Intro1
+                        tutorial_active = true
+                    } else if tutorial_enabled && current_level == 3 {
+                        tutorial_step = .Level3Intro
+                        tutorial_active = true
+                    } else {
+                        tutorial_step = .Complete
+                        tutorial_active = false
+                    }
+
+                    // Update tutorial positions
+                    first_ladder_x = 0
+                    first_ladder_top = 999999
+                    for ladder in level.ladders {
+                        if first_ladder_x == 0 || ladder.x < first_ladder_x {
+                            first_ladder_x = ladder.x
+                            first_ladder_top = ladder.y
+                        }
+                    }
+                    for item in level.items {
+                        item_pos = {item.x + item.width / 2, item.y}
+                        break
+                    }
+                    for trap in level.traps {
+                        trap_pos = {trap.x + trap.width / 2, trap.y}
+                        break
+                    }
+
+                    pause_menu.is_paused = false
+                    pause_menu.selected_index = 0
+                }
+            }
+
+            if result == -1 {
+                // Quit
+                break
+            }
+
+            // Skip rest of game logic when paused
+            // But still need to render
+
+        } else {
+        // Normal game logic (not paused)
 
         // Tutorial input handling
         if tutorial_active && rl.IsKeyPressed(.ENTER) {
@@ -602,6 +701,7 @@ main :: proc() {
                 tutorial_active = true
             }
         }
+        } // End of else (not paused) block
 
         // Animation update
         current_anim: ^Animation
@@ -786,19 +886,19 @@ main :: proc() {
         filled_width := i32(noise_meter)
         rl.DrawRectangle(METER_X, METER_Y, filled_width, METER_HEIGHT, rl.RED)
         rl.DrawRectangleLines(METER_X, METER_Y, METER_WIDTH, METER_HEIGHT, rl.WHITE)
-        rl.DrawText("NOISE", METER_X, METER_Y + METER_HEIGHT + 2, 10, rl.WHITE)
+        rl.DrawTextEx(game_font, "NOISE", {METER_X, METER_Y + METER_HEIGHT + 2}, 20, 1, rl.WHITE)
 
         for enemy in level.enemies {
             if enemy.stun_timer > 0 {
                 stun_text := rl.TextFormat("Guard Stunned %.0fs", enemy.stun_timer)
-                rl.DrawText(stun_text, METER_X + METER_WIDTH + 10, METER_Y, 10, rl.SKYBLUE)
+                rl.DrawTextEx(game_font, stun_text, {METER_X + METER_WIDTH + 10, METER_Y}, 20, 1, rl.SKYBLUE)
                 break
             }
         }
 
         if player.has_rock {
             rl.DrawCircle(130, 16, 6, rl.Color{139, 119, 101, 255})
-            rl.DrawText("LMB", 140, 10, 10, rl.WHITE)
+            rl.DrawTextEx(game_font, "LMB", {140, 10}, 20, 1, rl.WHITE)
         }
 
         if player.has_instrument {
@@ -808,20 +908,25 @@ main :: proc() {
             moog_icon_dest := rl.Rectangle{f32(inst_x), 6, 14, 14}
             rl.DrawTexturePro(moog_texture, moog_icon_source, moog_icon_dest, rl.Vector2{0, 0}, 0, rl.WHITE)
             if player.playing_moog {
-                rl.DrawText("...", inst_x + 18, 10, 10, rl.GOLD)
+                rl.DrawTextEx(game_font, "...", {f32(inst_x + 18), 10}, 20, 1, rl.GOLD)
             } else if player.instrument_cooldown > 0 {
                 cooldown_text := rl.TextFormat("%.0fs", player.instrument_cooldown)
-                rl.DrawText(cooldown_text, inst_x + 18, 10, 10, rl.GRAY)
+                rl.DrawTextEx(game_font, cooldown_text, {f32(inst_x + 18), 10}, 20, 1, rl.GRAY)
             } else {
-                rl.DrawText("[E]", inst_x + 18, 10, 10, rl.WHITE)
+                rl.DrawTextEx(game_font, "[E]", {f32(inst_x + 18), 10}, 20, 1, rl.WHITE)
             }
         }
 
         // Goal text for level 1
         if current_level == 1 {
             goal_text : cstring = "Goal: Locate the exit!"
-            text_width := rl.MeasureText(goal_text, 12)
-            rl.DrawText(goal_text, (GAME_WIDTH - text_width) / 2, 8, 12, rl.YELLOW)
+            text_size := rl.MeasureTextEx(game_font, goal_text, 20, 1)
+            rl.DrawTextEx(game_font, goal_text, {(GAME_WIDTH - text_size.x) / 2, 8}, 20, 1, rl.YELLOW)
+        }
+
+        // Pause hint in upper right corner
+        if !game_over && !pause_menu.is_paused {
+            draw_pause_hint(game_font)
         }
 
         // Tutorial overlay
@@ -911,18 +1016,23 @@ main :: proc() {
                     // No dialogue
                 }
 
-                rl.DrawText(dialogue_text, 55, 235, 15, rl.WHITE)
+                rl.DrawTextEx(game_font, dialogue_text, {55, 235}, 20, 1, rl.WHITE)
 
                 prompt_alpha := u8(150 + 100 * math.sin(arrow_timer * 3.0))
-                rl.DrawText("Press Enter", 270, 315, 15, rl.Color{255, 255, 255, prompt_alpha})
+                rl.DrawTextEx(game_font, "Press Enter", {270, 315}, 20, 1, rl.Color{255, 255, 255, prompt_alpha})
             }
         }
 
         // Game over screen
         if game_over {
             rl.DrawRectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, rl.Color{0, 0, 0, 180})
-            rl.DrawText("GAME OVER", 220, 150, 40, rl.RED)
-            rl.DrawText("Press R to restart", 240, 200, 20, rl.WHITE)
+            rl.DrawTextEx(game_font, "GAME OVER", {220, 150}, 20, 1, rl.RED)
+            rl.DrawTextEx(game_font, "Press R to restart", {240, 200}, 20, 1, rl.WHITE)
+        }
+
+        // Pause menu overlay
+        if pause_menu.is_paused {
+            draw_pause_menu(&pause_menu, tutorial_enabled, pause_level_selection, game_font)
         }
 
         rl.EndTextureMode()
