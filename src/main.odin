@@ -44,6 +44,13 @@ main :: proc() {
     }
     defer rl.UnloadTexture(jump_anim.texture)
 
+    moog_play_anim := Animation{
+        texture     = rl.LoadTexture("assets/sprites/player_playing_moogt.png"),
+        frame_count = 6,
+        frame_time  = 0.15,
+    }
+    defer rl.UnloadTexture(moog_play_anim.texture)
+
     enemy_move_anim := Animation{
         texture     = rl.LoadTexture("assets/sprites/enemy_movement.png"),
         frame_count = 7,
@@ -730,15 +737,19 @@ main :: proc() {
 
         // Animation update
         current_anim: ^Animation
-        switch player.state {
-        case .Idle:
-            current_anim = &idle_anim
-        case .Moving:
-            current_anim = &move_anim
-        case .Jumping:
-            current_anim = &jump_anim
-        case .Climbing:
-            current_anim = &idle_anim
+        if player.playing_moog {
+            current_anim = &moog_play_anim
+        } else {
+            switch player.state {
+            case .Idle:
+                current_anim = &idle_anim
+            case .Moving:
+                current_anim = &move_anim
+            case .Jumping:
+                current_anim = &jump_anim
+            case .Climbing:
+                current_anim = &idle_anim
+            }
         }
 
         if !game_over {
